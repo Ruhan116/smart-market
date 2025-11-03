@@ -1,0 +1,3 @@
+# Ignore BMAD and Claude assistant helper folders only
+/.bmad-core/
+/.claude/
