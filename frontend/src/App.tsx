@@ -12,6 +12,7 @@ import Signup from "./pages/Signup";
 import Home from "./pages/Home";
 import Recommendations from "./pages/Recommendations";
 import Forecasts from "./pages/Forecasts";
+import ForecastDetails from "./pages/ForecastDetails";
 import Products from "./pages/Products";
 import Customers from "./pages/Customers";
 import Transactions from "./pages/Transactions";
@@ -49,6 +50,7 @@ const AppContent = () => {
             <Route path="/home" element={<Home />} />
             <Route path="/recommendations" element={<Recommendations />} />
             <Route path="/forecasts" element={<Forecasts />} />
+            <Route path="/forecasts/:productId" element={<ForecastDetails />} />
             <Route path="/products" element={<Products />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/transactions" element={<Transactions />} />
