@@ -344,7 +344,7 @@ Unlike competitors (Khatabook, Dukaan, Zoho), SmartMarket closes the loop: **For
 
 **NF2.3: Task Queue Throughput**
 - MVP target: ~3,000 tasks/day (CSV parsing, forecasts, churn jobs)
-- Celery + Redis (Railway free tier) can comfortably handle this volume for MVP; scale workers as needed
+- Celery + Redis (Render free tier) can comfortably handle this volume for MVP; scale workers as needed
 - Upgrade plan: If you migrate to Kafka for Phase 2, use managed Upstash or Confluent for higher throughput and durable retention
 
 **NF2.4: Rate Limiting**
@@ -360,7 +360,7 @@ Unlike competitors (Khatabook, Dukaan, Zoho), SmartMarket closes the loop: **For
 
 **NF3.2: Data Persistence**
 - ACID compliance (PostgreSQL)
-- Automatic daily backups (Railway managed)
+- Automatic daily backups (Render managed)
 - Canonical records stored in the database (transactions, forecasts, recommendations). Redis/Celery are not a durable event log; for durable event retention and replay plan to add Kafka in Phase 2.
 - Zero data loss for database records is a design goal; background jobs should be idempotent so reprocessing is safe.
 
@@ -387,7 +387,7 @@ Unlike competitors (Khatabook, Dukaan, Zoho), SmartMarket closes the loop: **For
 
 **NF4.3: Secrets Management**
 - No secrets in code or .git history
-- Secrets stored in environment variables (Railway Secrets)
+- Secrets stored in environment variables (Render environment settings)
 - Rotation plan (Phase 2)
 
 #### NF-Group 5: Data Quality & Consistency
@@ -465,10 +465,10 @@ Unlike competitors (Khatabook, Dukaan, Zoho), SmartMarket closes the loop: **For
 | Component | Technology | Free Deployment | Cost (Post-MVP) |
 |-----------|-----------|-----------------|-----------------|
 | **Frontend** | React 18 + TypeScript + Tailwind | **Vercel** (free) | $0-20/mo |
-| **Backend** | Django 4.2 + DRF | **Railway** (free $5 credit) | $7-15/mo |
-| **Database** | PostgreSQL 14+ | **Railway** (free) | Included in Railway |
-| **Cache** | Redis | **Railway** (free) | Included in Railway |
-| **Event / Task Queue** | Celery + Redis (broker) | **Railway / Redis** (free) | Included in Railway / low-cost |
+| **Backend** | Django 4.2 + DRF | **Render** (free tier) | $7-15/mo |
+| **Database** | PostgreSQL 14+ | **Render** (free) | Included in Render |
+| **Cache** | Redis | **Render** (free) | Included in Render |
+| **Event / Task Queue** | Celery + Redis (broker) | **Render / Redis** (free) | Included in Render / low-cost |
 | **CI/CD** | GitHub Actions | **Free** (2,000 min/mo) | Free |
 | **Container Registry** | GitHub Container Registry | **Free** | Free |
 | **Monitoring** | Grafana Cloud | **Free tier** | Free (15-day logs) |
@@ -485,27 +485,27 @@ Unlike competitors (Khatabook, Dukaan, Zoho), SmartMarket closes the loop: **For
                            │ HTTPS
                            ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│               RAILWAY (Backend, Database, Cache)                │
+│               RENDER (Backend, Database, Cache)                 │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │ Django App (2 containers, 512MB RAM each)               │    │
+│  │ Django App (2 services, 512MB RAM each)                 │    │
 │  │ - gunicorn + Django app                                 │    │
-│  │ - Free tier: $5/mo credit (plenty for MVP)              │    │
-│  │ - URL: smartmarket-api.railway.app                      │    │
+│  │ - Free tier: Suitable for MVP development               │    │
+│  │ - URL: smartmarket-api.onrender.com                     │    │
 │  └─────────────────────────────────────────────────────────┘    │
-│         ↓ (SQLAlchemy ORM)                                       │
+│         ↓ (Django ORM)                                           │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │ PostgreSQL 14 (free tier, 10GB storage)                 │    │
-│  │ - Managed by Railway, auto-backups, SSL connections     │    │
+│  │ PostgreSQL 14 (free tier, 1GB storage)                  │    │
+│  │ - Managed by Render, auto-backups, SSL connections      │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │         ↓ (Redis protocol)                                       │
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │ Redis (free tier, 256MB)                                │    │
 │  │ - For Celery broker + session cache                     │    │
-│  │ - Managed by Railway                                    │    │
+│  │ - Managed by Render                                     │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │         ↓ (Task queue / Redis broker)                            │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │ Celery Worker (1-2 containers, 512MB RAM each)          │    │
+│  │ Celery Worker (1-2 services, 512MB RAM each)            │    │
 │  │ - Processes background tasks (CSV parsing, forecasts)   │    │
 │  │ - Uses Redis as broker & result backend for MVP         │    │
 │  └─────────────────────────────────────────────────────────┘    │
@@ -618,7 +618,7 @@ smartmarket/                           # Django project root
 │   ├── test_recommendations.py
 │   └── test_integration.py
 ├── docker-compose.yml                 # Local dev environment
-├── Procfile                           # Railway deployment config
+├── Procfile                           # Render deployment config
 ├── requirements.txt                   # Python dependencies
 └── manage.py
 ```
@@ -628,16 +628,16 @@ smartmarket/                           # Django project root
 | Component | Service | Cost |
 |-----------|---------|------|
 | Frontend | Vercel | $0 |
-| Backend App | Railway | Included |
-| PostgreSQL | Railway | Included |
-| Redis | Railway | Included |
-| Celery Worker | Railway | Included |
+| Backend App | Render | Included |
+| PostgreSQL | Render | Included |
+| Redis | Render | Included |
+| Celery Worker | Render | Included |
 | Kafka (optional, Phase 2) | Upstash free tier | $0 |
 | CI/CD | GitHub Actions | $0 |
 | Monitoring | Grafana Cloud free | $0 |
 | **TOTAL** | | **$0-5/month** |
 
-**Railway Free $5/month credit covers:** 1 small Django container + 1 Celery worker container + PostgreSQL + Redis
+**Render free tier covers:** 1 small Django service + 1 Celery worker service + PostgreSQL + Redis (sufficient for MVP development)
 
 ---
 
@@ -1155,20 +1155,20 @@ Pagination: "1-20 of 156" + "Load more"
 - README with setup instructions
 - Acceptance: `docker-compose up` starts full stack
 
-**1.2: Railway Deployment & CI/CD Pipeline (3 hrs)**
+**1.2: Render Deployment & CI/CD Pipeline (3 hrs)**
 - GitHub Actions workflow: test → lint → build → deploy
-- Railway config: 2 containers (web + worker), PostgreSQL, Redis (optional: Upstash Kafka for Phase 2)
+- Render config: 2 services (web + worker), PostgreSQL, Redis (optional: Upstash Kafka for Phase 2)
 - Auto-deploy on merge to main
 - Health check: GET /health returns 200
-- Secrets in Railway Secrets (not code)
+- Secrets in Render environment settings (not code)
 - HTTPS auto-enabled
-- Acceptance: `git push main` → auto-deployed to Railway
+- Acceptance: `git push main` → auto-deployed to Render
 
 **1.3: Vercel Frontend Deployment Setup (2 hrs)**
 - React app created (Create React App or Vite)
 - Vercel auto-deploy on GitHub push
-- Environment variable: REACT_APP_API_URL → Railway backend
-- CORS configured for Vercel → Railway calls
+- Environment variable: REACT_APP_API_URL → Render backend
+- CORS configured for Vercel → Render calls
 - Acceptance: `git push` → auto-deployed to Vercel
 
 **1.4: Database Schema & Migrations (2 hrs)**
@@ -1515,7 +1515,7 @@ Pagination: "1-20 of 156" + "Load more"
 
 **8.1: API Client Setup (2 hrs)**
 - Axios/Fetch client with auth, error handling
-- Baseurl: https://smartmarket-api.railway.app/api
+- Baseurl: https://smartmarket-api.onrender.com/api
 - Auto-refresh: If 401, refresh token, retry
 - Error handling: Specific messages per error code
 - Request timeout: 30 sec
@@ -1608,7 +1608,7 @@ Pagination: "1-20 of 156" + "Load more"
 - Architecture doc: Diagram, data flow, why these choices, scalability plan
 - Testing doc: What tests run, results, known issues
 - Assumptions doc: Key assumptions, validation plan
-- Deployment doc: Run locally, deploy to Vercel/Railway, monitoring
+- Deployment doc: Run locally, deploy to Vercel/Render, monitoring
 - Format: Markdown in /docs or Google Docs
 
 **9.7: Final QA & Bug Bash (0.5 hrs)**
@@ -1654,13 +1654,13 @@ EPIC 12: Hyperlocal Marketplace (Phase 2, Weeks 12-20)
 - ✅ Hackathon Epics (1-9): 84 person-hours, achievable with 4-person team
 - ✅ MVP Cut criteria: Can reduce to 13 endpoints + skip detail views if needed
 - ✅ Deferred features: Marketplace, WhatsApp, voice, native apps → Phase 2+
-- ✅ Free-tier deployment: All services $0-5/month (Vercel, Railway, Upstash)
+- ✅ Free-tier deployment: All services $0-5/month (Vercel, Render, Upstash)
 
 **TECHNICAL ARCHITECTURE**
 -- ✅ Django + DRF (backend) + React (frontend) + Celery/Redis (task queue) + PostgreSQL (database)
 -- ✅ Event-driven design: Async processing via Celery tasks, clear event/task contracts; Kafka is optional for Phase 2 when moving to microservices
 - ✅ Scalability: Monolith → Microservices path documented
-- ✅ Deployment: Docker, Railway, Vercel, GitHub Actions
+- ✅ Deployment: Docker, Render, Vercel, GitHub Actions
 
 **TEAM & ROLES**
 - ✅ 4-person team: Backend, ML, Frontend, Floater
