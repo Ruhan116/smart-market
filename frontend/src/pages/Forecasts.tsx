@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
@@ -8,6 +9,7 @@ import { Forecast } from '@/types/models';
 import { toast } from 'sonner';
 
 const Forecasts: React.FC = () => {
+  const navigate = useNavigate();
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -156,7 +158,12 @@ const Forecasts: React.FC = () => {
                     </div>
                   )}
 
-                  <Button variant="outline" size="sm" className="w-full">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full"
+                    onClick={() => navigate(`/forecasts/${forecast.product_id}`)}
+                  >
                     View Detailed Forecast →
                   </Button>
                 </Card>
