@@ -33,7 +33,7 @@ This document outlines the backend architecture for **SmartMarket**, an AI-power
 - **Technology choices:** Django 4.2 LTS + PostgreSQL + Celery/Redis
 - **API contracts:** RESTful JSON endpoints matching frontend expectations
 - **Data models:** 10 core entities with relationships
-- **Deployment:** Single Railway container + Celery workers
+- **Deployment:** Single Render service + Celery workers
 - **Scalability path:** Ready for Phase 2 microservices extraction
 
 **Reference Documents:**
@@ -164,11 +164,11 @@ SmartMarket backend is a **modular monolithic Django application** with the foll
 
 | Category | Technology | Version | Purpose | Rationale |
 |----------|-----------|---------|---------|-----------|
-| **App Server** | gunicorn | 21.2 | WSGI server | Fast, multi-worker, Railway-native |
+| **App Server** | gunicorn | 21.2 | WSGI server | Fast, multi-worker, suitable for Render |
 | **Containerization** | Docker | Latest | Container runtime | Consistent dev → prod |
 | **Orchestration** | Docker Compose | 2.x | Local development | Multi-container testing |
 | **CI/CD** | GitHub Actions | Latest | Continuous integration | Free, native GitHub, parallelization |
-| **Deployment** | Railway | Latest | Managed hosting | Free $5/mo, auto-deploy, includes PostgreSQL/Redis |
+| **Deployment** | Render | Latest | Managed hosting | Free tier, auto-deploy, includes PostgreSQL/Redis |
 
 ### Monitoring & Observability
 
@@ -474,7 +474,7 @@ For each customer:
 
 ```
 Development: http://localhost:8000/api
-Production: https://smartmarket-api.railway.app/api
+Production: https://smartmarket-api.onrender.com/api
 ```
 
 ### Authentication
@@ -1567,7 +1567,7 @@ smartmarket-backend/
 ├── .github/
 │   └── workflows/
 │       └── deploy.yml             # GitHub Actions CI/CD pipeline
-├── Procfile                       # Railway deployment config
+├── Procfile                       # Render deployment config
 ├── requirements.txt               # Python dependencies (pip)
 ├── requirements-dev.txt           # Dev dependencies (pytest, black, etc.)
 ├── manage.py                      # Django management script
@@ -1606,14 +1606,14 @@ This starts:
 - API Docs: http://localhost:8000/api/docs
 - Django Admin: http://localhost:8000/admin (user: admin, pass: admin)
 
-### Production Deployment (Railway)
+### Production Deployment (Render)
 
-**Environment Variables (Railway Secrets):**
+**Environment Variables (Render Environment Settings):**
 
 ```
 DJANGO_SECRET_KEY=<generate new uuid>
 DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=smartmarket-api.railway.app
+DJANGO_ALLOWED_HOSTS=smartmarket-api.onrender.com
 
 DATABASE_URL=postgresql://user:pass@host:5432/smartmarket
 REDIS_URL=redis://host:port
@@ -1634,7 +1634,7 @@ JWT_REFRESH_TOKEN_LIFETIME=2592000
 
 ```yaml
 # .github/workflows/deploy.yml
-name: Deploy to Railway
+name: Deploy to Render
 
 on:
   push:
@@ -1664,10 +1664,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - run: railway up --detach
+      - name: Deploy to Render
+        run: curl https://api.render.com/deploy/${{ secrets.RENDER_SERVICE_ID }}?key=${{ secrets.RENDER_API_KEY }}
 ```
 
-2. **Railway Configuration:**
+2. **Render Configuration:**
 
 ```yaml
 # Procfile
@@ -1678,15 +1679,15 @@ worker: celery -A smartmarket worker --loglevel=info
 3. **Auto-Deploy:**
    - Push to `main` branch
    - GitHub Actions tests + builds
-   - Railway auto-deploys on successful build
+   - Render auto-deploys on successful build (GitHub integration)
 
 ### Environments
 
 | Environment | Purpose | Database | Redis | Workers |
 |-------------|---------|----------|-------|---------|
 | **Development** | Local testing | SQLite or postgres:latest (docker) | docker redis:latest | docker celery |
-| **Staging** | QA & pre-release | Railway PostgreSQL | Railway Redis | 1 Celery worker |
-| **Production** | Live users | Railway PostgreSQL (backup hourly) | Railway Redis (256MB) | 2-4 Celery workers |
+| **Staging** | QA & pre-release | Render PostgreSQL | Render Redis | 1 Celery worker |
+| **Production** | Live users | Render PostgreSQL (backup daily) | Render Redis (256MB) | 2-4 Celery workers |
 
 ### Environment Promotion Flow
 
@@ -1697,9 +1698,9 @@ GitHub Actions (test, lint, build)
     ↓
 Docker Image Build & Push to GHCR
     ↓
-Railway Auto-Deploy (if main branch)
+Render Auto-Deploy (if main branch)
     ↓
-Production: smartmarket-api.railway.app
+Production: smartmarket-api.onrender.com
 ```
 
 ### Rollback Strategy
@@ -1879,7 +1880,7 @@ sentry_sdk.capture_message("Business event", level="info")
 - Environment variables loaded via `python-decouple`
 
 **Production:**
-- Railway Secrets (encrypted)
+- Render Environment Secrets (encrypted)
 - Never hardcode secrets
 - No secrets in logs or error messages
 - Rotation plan: Phase 2
@@ -1930,7 +1931,7 @@ CSRF_COOKIE_SECURE = True
 
 **Encryption in Transit:**
 - HTTPS/TLS 1.3 mandatory in production
-- Certificate: Auto-generated by Railway
+- Certificate: Auto-generated by Render
 
 **PII Handling:**
 - Collect only: email, first_name, business_name, phone, address
@@ -2131,7 +2132,7 @@ class TransactionFactory(factory.django.DjangoModelFactory):
 
 2. **Setup Infrastructure:**
    - Create GitHub repository
-   - Setup Railway account + PostgreSQL + Redis
+   - Setup Render account + PostgreSQL + Redis
    - Configure GitHub Actions CI/CD
    - Setup Sentry account
 
@@ -2145,7 +2146,7 @@ class TransactionFactory(factory.django.DjangoModelFactory):
 **Epic 1:** Infrastructure & Setup (8 hours)
 - Django + DRF project bootstrap
 - Docker Compose local dev
-- Railway deployment pipeline
+- Render deployment pipeline
 - Database schema + migrations
 
 **Epic 2:** Authentication (6 hours)
@@ -2222,7 +2223,7 @@ class TransactionFactory(factory.django.DjangoModelFactory):
 - [Celery Docs](https://docs.celeryproject.org/)
 - [Prophet Forecasting](https://facebook.github.io/prophet/)
 - [PostgreSQL Docs](https://www.postgresql.org/docs/)
-- [Railway Docs](https://docs.railway.app/)
+- [Render Docs](https://render.com/docs)
 
 ### Development Guidelines
 
