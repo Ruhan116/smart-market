@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { authService } from '@/services/auth';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 
 const Signup: React.FC = () => {
@@ -17,6 +17,7 @@ const Signup: React.FC = () => {
   });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { signup } = useAuth();
 
   const businessTypes = [
     { value: 'retail', label: 'Retail Shop' },
@@ -43,10 +44,22 @@ const Signup: React.FC = () => {
 
     setLoading(true);
     try {
-      await authService.signup(formData);
+      await signup(formData.email, formData.password, formData.first_name, formData.business_name, formData.business_type);
       toast.success('🎉 Account created! Welcome to SmartMarket!');
       navigate('/home');
     } catch (error: any) {
+      // Extract validation errors from backend
+      const errorData = error.response?.data;
+      if (errorData && typeof errorData === 'object') {
+        // Show first validation error
+        const firstError = Object.entries(errorData)[0];
+        if (firstError) {
+          const [field, messages] = firstError as [string, string[]];
+          const message = Array.isArray(messages) ? messages[0] : messages;
+          toast.error(`${field}: ${message}`);
+          return;
+        }
+      }
       toast.error(error.message || 'Signup failed. Please try again.');
     } finally {
       setLoading(false);

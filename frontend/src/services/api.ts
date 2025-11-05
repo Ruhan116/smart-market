@@ -24,14 +24,17 @@ api.interceptors.response.use(
       const refreshToken = localStorage.getItem('refresh_token');
       if (refreshToken) {
         try {
-          const { data } = await axios.post(`${API_BASE}/auth/token/refresh`, {
-            refresh_token: refreshToken,
+          const { data } = await axios.post(`${API_BASE}/auth/token/refresh/`, {
+            refresh: refreshToken,
           });
-          localStorage.setItem('access_token', data.access_token);
-          if (error.config.headers) {
-            error.config.headers.Authorization = `Bearer ${data.access_token}`;
+          const newAccessToken = data.access || data.access_token;
+          if (newAccessToken) {
+            localStorage.setItem('access_token', newAccessToken);
+            if (error.config.headers) {
+              error.config.headers.Authorization = `Bearer ${newAccessToken}`;
+            }
+            return api.request(error.config);
           }
-          return api.request(error.config);
         } catch {
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');

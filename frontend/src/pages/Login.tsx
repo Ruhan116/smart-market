@@ -27,7 +27,9 @@ const Login: React.FC = () => {
       toast.success('✅ Welcome back!');
       navigate('/home');
     } catch (error: any) {
-      toast.error(error.message || 'Login failed. Please try again.');
+      // Extract error message from backend response
+      const errorMsg = error.response?.data?.detail || error.message || 'Login failed. Please try again.';
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }
