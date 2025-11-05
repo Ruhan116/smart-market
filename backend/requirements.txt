@@ -1,0 +1,14 @@
+Django>=4.2,<5
+djangorestframework>=3.14
+djangorestframework-simplejwt>=2.8
+pyjwt>=2.7
+
+# Postgres support
+psycopg2-binary>=2.9
+dj-database-url>=1.0.0
+
+# Local development
+python-dotenv>=1.0.0
+
+# Supabase client
+supabase>=1.0.0
