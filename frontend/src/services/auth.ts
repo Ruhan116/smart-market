@@ -8,8 +8,8 @@ interface SignupRequest {
   business_type: string;
 }
 
-// Demo mode - frontend only authentication
-const DEMO_MODE = true;
+// Demo mode - frontend only authentication. Controlled via VITE_DEMO_MODE
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
 const mockUser: User = {
   id: 1,
@@ -48,9 +48,25 @@ export const authService = {
       
       return { user, business: mockBusiness };
     }
-    
-    // Real API call would go here
-    throw new Error('Backend API not configured');
+
+    // Real API call
+    const api = (await import('./api')).default;
+    console.log('[authService.signup] Sending signup request with data:', data);
+    try {
+      const res = await api.post('/auth/register/', data);
+      console.log('[authService.signup] Success response:', res.data);
+      const payload = res.data;
+      const access = payload.access_token || payload.access;
+      const refresh = payload.refresh_token || payload.refresh;
+      if (access) localStorage.setItem('access_token', access);
+      if (refresh) localStorage.setItem('refresh_token', refresh);
+      return payload;
+    } catch (error: any) {
+      console.error('[authService.signup] Error status:', error.response?.status);
+      console.error('[authService.signup] Error data:', JSON.stringify(error.response?.data, null, 2));
+      console.error('[authService.signup] Error message:', error.message);
+      throw error;
+    }
   },
 
   login: async (email: string, password: string) => {
@@ -64,9 +80,22 @@ export const authService = {
       
       return { user: mockUser };
     }
-    
-    // Real API call would go here
-    throw new Error('Backend API not configured');
+
+    const api = (await import('./api')).default;
+    console.log('[authService.login] Sending login request for:', email);
+    try {
+      const res = await api.post('/auth/login/', { email, password });
+      console.log('[authService.login] Success response:', res.data);
+      const payload = res.data;
+      const access = payload.access_token || payload.access;
+      const refresh = payload.refresh_token || payload.refresh;
+      if (access) localStorage.setItem('access_token', access);
+      if (refresh) localStorage.setItem('refresh_token', refresh);
+      return payload;
+    } catch (error: any) {
+      console.error('[authService.login] Error:', error.response?.data || error.message);
+      throw error;
+    }
   },
 
   logout: () => {
@@ -79,8 +108,16 @@ export const authService = {
       await new Promise(resolve => setTimeout(resolve, 300));
       return mockBusiness;
     }
-    
-    throw new Error('Backend API not configured');
+    const api = (await import('./api')).default;
+    console.log('[authService.getProfile] Fetching profile with token:', localStorage.getItem('access_token')?.substring(0, 20) + '...');
+    try {
+      const res = await api.get('/auth/business/profile/');
+      console.log('[authService.getProfile] Success response:', res.data);
+      return res.data;
+    } catch (error: any) {
+      console.error('[authService.getProfile] Error:', error.response?.status, error.response?.data || error.message);
+      throw error;
+    }
   },
 
   isAuthenticated: () => {
