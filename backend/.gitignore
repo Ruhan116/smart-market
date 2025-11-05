@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment / secret files
+.env
+.env.*
+.env.example
+
+# Django
+*.sqlite3
+db.sqlite3
+/media
+/staticfiles
+
+# IDEs and editors
+.vscode/
+.idea/
+
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+
+# Misc
+*.pem
+*.key
+data.json
+
+# Ignore any local-only config
+.localrc
+
+
