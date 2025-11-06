@@ -1,14 +1,17 @@
 import csv
 import hashlib
+import logging
 import os
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Set
 from django.db import transaction as db_transaction
 from django.utils import timezone
 from .models import FileUploadRecord, Transaction, Product, Customer, FailedJob
 from accounts.models import Business
+
+logger = logging.getLogger(__name__)
 
 
 class CSVParserService:
@@ -32,6 +35,8 @@ class CSVParserService:
         self.created_transactions = 0
         self.skipped_duplicates = 0
         self.errors: List[Dict[str, Any]] = []
+        self.affected_products: Set[str] = set()  # Track affected product IDs
+        self.affected_customers: Set[str] = set()  # Track affected customer IDs
 
     def parse_csv(self) -> Dict[str, Any]:
         """Parse CSV file and create transactions
@@ -43,6 +48,9 @@ class CSVParserService:
             file_path = self.file_upload.file_path
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"File not found: {file_path}")
+
+            logger.info(f"CSV upload started: file_id={self.file_upload.file_id}, "
+                       f"business={self.business.name}, filename={self.file_upload.original_filename}")
 
             self.file_upload.status = 'processing'
             self.file_upload.processing_started_at = timezone.now()
@@ -88,6 +96,17 @@ class CSVParserService:
             self.file_upload.processing_errors = self.errors
             self.file_upload.save()
 
+            logger.info(
+                f"CSV parsing: Created {self.created_transactions} transactions, "
+                f"skipped {self.skipped_duplicates} duplicates, failed {self.failed_rows}"
+            )
+
+            # Verify data consistency
+            self._verify_data_consistency()
+
+            # Publish event to trigger downstream processing
+            self._publish_transaction_parsed_event()
+
             return {
                 'created_count': self.created_transactions,
                 'skipped_count': self.skipped_duplicates,
@@ -98,6 +117,7 @@ class CSVParserService:
 
         except Exception as e:
             # Critical error - mark as failed
+            logger.error(f"CSV parsing failed: {str(e)}")
             self.file_upload.status = 'failed'
             self.file_upload.error_message = str(e)
             self.file_upload.processing_completed_at = timezone.now()
@@ -173,17 +193,21 @@ class CSVParserService:
         if self._is_duplicate(row_hash):
             self.skipped_duplicates += 1
             self.processed_rows += 1
+            logger.info(f"Duplicate detected: hash={row_hash}, skipped")
             return
 
         # Use atomic transaction for consistency
         with db_transaction.atomic():
             # Get or create product
             product = self._get_or_create_product(product_name, unit_price)
+            self.affected_products.add(str(product.product_id))
 
             # Get or create customer (only if not "Walk-in")
             customer = None
             if customer_name and customer_name.lower() != 'walk-in':
                 customer = self._get_or_create_customer(customer_name)
+                if customer:
+                    self.affected_customers.add(str(customer.customer_id))
 
             # Create transaction
             transaction = Transaction.objects.create(
@@ -320,3 +344,76 @@ class CSVParserService:
         except Exception:
             # Log but don't fail if we can't store the failed job
             pass
+
+    def _publish_transaction_parsed_event(self) -> None:
+        """Publish event to trigger downstream processing"""
+        try:
+            from apps.events.adapter import publish_event
+
+            payload = {
+                'business_id': str(self.business.business_id),
+                'affected_products': list(self.affected_products),
+                'affected_customers': list(self.affected_customers),
+                'transaction_count': self.created_transactions
+            }
+
+            logger.info(f"Event published: topic=transaction.parsed, payload={payload}")
+            publish_event('transaction.parsed', payload)
+        except ImportError:
+            logger.warning("Event adapter not available for CSV parsing")
+        except Exception as e:
+            logger.error(f"Failed to publish transaction.parsed event: {e}")
+
+    def _verify_data_consistency(self) -> None:
+        """Verify data consistency after parsing completes"""
+        logger.info("Verifying data consistency...")
+
+        try:
+            # 1. Assert all transactions belong to correct business
+            bad_transactions = Transaction.objects.filter(
+                file_upload=self.file_upload
+            ).exclude(business=self.business)
+
+            if bad_transactions.exists():
+                logger.warning(
+                    f"Data consistency issue: {bad_transactions.count()} transactions "
+                    f"belong to different business than upload"
+                )
+
+            # 2. Verify product stock consistency
+            for product_id in self.affected_products:
+                try:
+                    product = Product.objects.get(product_id=product_id, business=self.business)
+
+                    # Calculate expected stock from all transactions for this product
+                    # Expected stock = initial stock - sum of quantities
+                    # Since we don't track initial stock, we just verify stock is non-negative
+                    if product.current_stock < 0:
+                        logger.warning(
+                            f"Data consistency issue: Product {product.name} "
+                            f"(ID: {product_id}) has negative stock: {product.current_stock}"
+                        )
+                except Product.DoesNotExist:
+                    logger.warning(f"Data consistency issue: Product {product_id} not found")
+
+            # 3. Verify all customers referenced in transactions exist
+            from_file = Transaction.objects.filter(
+                file_upload=self.file_upload,
+                customer__isnull=False
+            ).values_list('customer_id', flat=True).distinct()
+
+            missing_customers = []
+            for customer_id in from_file:
+                if not Customer.objects.filter(customer_id=customer_id).exists():
+                    missing_customers.append(customer_id)
+
+            if missing_customers:
+                logger.warning(
+                    f"Data consistency issue: {len(missing_customers)} customers "
+                    f"referenced in transactions but not found: {missing_customers}"
+                )
+
+            logger.info("Data consistency verification completed")
+
+        except Exception as e:
+            logger.error(f"Error during data consistency verification: {e}")

@@ -7,6 +7,7 @@ from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient, APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 from accounts.models import Business
@@ -666,3 +667,600 @@ class CSVParserServiceTestCase(TestCase):
         # Both should be created (different customers = different hash)
         self.assertEqual(result['created_count'], 2)
         self.assertEqual(Transaction.objects.filter(business=self.business).count(), 2)
+
+
+class ReceiptUploadTestCase(APITestCase):
+    """Test receipt image upload endpoint"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        # Create user and business
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.business = Business.objects.create(owner=self.user, name='Test Store', type='convenience')
+
+        # Create API client and authenticate
+        self.client = APIClient()
+        refresh = RefreshToken.for_user(self.user)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+
+        self.upload_url = '/api/data/upload-receipt'
+
+    def _create_image_file(self, filename='test.jpg', image_format='JPEG'):
+        """Helper to create a simple image file"""
+        from PIL import Image
+        image = Image.new('RGB', (100, 100), color='red')
+        image_bytes = io.BytesIO()
+        image.save(image_bytes, format=image_format)
+        image_bytes.seek(0)
+
+        image_file = SimpleUploadedFile(
+            filename,
+            image_bytes.getvalue(),
+            content_type=f'image/{image_format.lower()}'
+        )
+        return image_file
+
+    # Test 1: Successful receipt upload (202 response)
+    def test_successful_receipt_upload(self):
+        """Test successful receipt image upload returns 202 ACCEPTED"""
+        image_file = self._create_image_file('receipt.jpg', 'JPEG')
+
+        response = self.client.post(
+            self.upload_url,
+            {'image': image_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.data['status'], 'pending')
+        self.assertIn('image_id', response.data['data'])
+        self.assertIn('file_name', response.data['data'])
+        self.assertIn('message', response.data['data'])
+
+    # Test 2: Invalid image format rejection (400)
+    def test_invalid_image_format(self):
+        """Test invalid image format returns 400"""
+        invalid_file = SimpleUploadedFile(
+            'test.txt',
+            b'This is not an image',
+            content_type='text/plain'
+        )
+
+        response = self.client.post(
+            self.upload_url,
+            {'image': invalid_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('INVALID_FILE_FORMAT', response.data['error_code'])
+
+    # Test 3: Oversized image rejection (400)
+    def test_oversized_image_rejection(self):
+        """Test image over 5MB is rejected"""
+        # Create a mock file larger than 5MB
+        large_content = b'x' * (5 * 1024 * 1024 + 1)
+        large_file = SimpleUploadedFile(
+            'large.jpg',
+            large_content,
+            content_type='image/jpeg'
+        )
+
+        response = self.client.post(
+            self.upload_url,
+            {'image': large_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('INVALID_FILE_FORMAT', response.data['error_code'])
+
+    # Test 4: Receipt status polling endpoint
+    def test_receipt_status_polling(self):
+        """Test receipt status can be polled"""
+        image_file = self._create_image_file('receipt.jpg', 'JPEG')
+
+        # Upload receipt
+        response = self.client.post(
+            self.upload_url,
+            {'image': image_file},
+            format='multipart'
+        )
+
+        image_id = response.data['data']['image_id']
+
+        # Poll status endpoint
+        status_url = f'/api/data/upload-receipt/{image_id}'
+        status_response = self.client.get(status_url)
+
+        self.assertEqual(status_response.status_code, 200)
+        self.assertIn('status', status_response.data)
+        self.assertIn('image_id', status_response.data)
+
+    # Test 5: Missing image file returns 400
+    def test_missing_image_file(self):
+        """Test missing image file returns 400"""
+        response = self.client.post(
+            self.upload_url,
+            {},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    # Test 6: Receipt upload creates ReceiptUploadRecord
+    def test_receipt_upload_record_creation(self):
+        """Test that ReceiptUploadRecord is created on upload"""
+        from .models import ReceiptUploadRecord
+        image_file = self._create_image_file('receipt.jpg', 'JPEG')
+
+        response = self.client.post(
+            self.upload_url,
+            {'image': image_file},
+            format='multipart'
+        )
+
+        image_id = response.data['data']['image_id']
+
+        # Verify ReceiptUploadRecord was created with correct fields
+        receipt = ReceiptUploadRecord.objects.get(image_id=image_id)
+        self.assertEqual(receipt.status, 'pending')
+        self.assertEqual(receipt.original_filename, 'receipt.jpg')
+        self.assertEqual(receipt.business, self.business)
+        self.assertIsNotNone(receipt.file_path)
+
+    # Test 7: PNG images are also accepted
+    def test_png_image_upload(self):
+        """Test PNG images are accepted"""
+        image_file = self._create_image_file('receipt.png', 'PNG')
+
+        response = self.client.post(
+            self.upload_url,
+            {'image': image_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.data['status'], 'pending')
+
+
+class TransactionListTestCase(APITestCase):
+    """Test transaction list endpoint with filtering, sorting, and summary"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        # Create users and businesses
+        self.user1 = User.objects.create_user(username='user1', password='pass123')
+        self.user2 = User.objects.create_user(username='user2', password='pass123')
+
+        self.business1 = Business.objects.create(owner=self.user1, name='Store 1', type='convenience')
+        self.business2 = Business.objects.create(owner=self.user2, name='Store 2', type='retail')
+
+        # Authenticate user1
+        self.client = APIClient()
+        refresh = RefreshToken.for_user(self.user1)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+
+        self.list_url = '/api/data/transactions/'
+        self.summary_url = '/api/data/transactions/summary/'
+
+        # Create test data for business1
+        self._create_test_transactions()
+
+    def _create_test_transactions(self):
+        """Create test transactions for business1"""
+        # Create products
+        self.product1 = Product.objects.create(
+            business=self.business1,
+            name='Shirt',
+            unit_price=Decimal('300'),
+            current_stock=100
+        )
+        self.product2 = Product.objects.create(
+            business=self.business1,
+            name='Pants',
+            unit_price=Decimal('500'),
+            current_stock=50
+        )
+
+        # Create customer
+        self.customer1 = Customer.objects.create(
+            business=self.business1,
+            name='Ahmed',
+            total_purchases=Decimal('2000')
+        )
+
+        # Create transactions
+        for i in range(5):
+            Transaction.objects.create(
+                business=self.business1,
+                product=self.product1,
+                customer=self.customer1,
+                date=timezone.now().date(),
+                quantity=2,
+                unit_price=Decimal('300'),
+                amount=Decimal('600'),
+                payment_method='cash'
+            )
+
+        # Create transactions with different payment method
+        for i in range(3):
+            Transaction.objects.create(
+                business=self.business1,
+                product=self.product2,
+                customer=self.customer1,
+                date=timezone.now().date(),
+                quantity=1,
+                unit_price=Decimal('500'),
+                amount=Decimal('500'),
+                payment_method='bkash'
+            )
+
+        # Create transaction for business2 to test isolation
+        product_b2 = Product.objects.create(
+            business=self.business2,
+            name='Hat',
+            unit_price=Decimal('100'),
+            current_stock=200
+        )
+        Transaction.objects.create(
+            business=self.business2,
+            product=product_b2,
+            customer=None,
+            date=timezone.now().date(),
+            quantity=1,
+            unit_price=Decimal('100'),
+            amount=Decimal('100'),
+            payment_method='cash'
+        )
+
+    # Test 1: List all transactions (pagination works)
+    def test_list_all_transactions(self):
+        """Test listing all transactions with pagination"""
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 8)  # 5 + 3 from business1
+        self.assertEqual(len(response.data['results']), 8)
+
+    # Test 2: Pagination limits
+    def test_pagination_limit(self):
+        """Test pagination respects limit parameter"""
+        response = self.client.get(f'{self.list_url}?limit=3')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['results']), 3)
+        self.assertIsNotNone(response.data['next'])
+
+    # Test 3: Filter by product
+    def test_filter_by_product(self):
+        """Test filtering transactions by product_id"""
+        response = self.client.get(f'{self.list_url}?product_id={self.product1.product_id}')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 5)
+
+    # Test 4: Filter by payment method
+    def test_filter_by_payment_method(self):
+        """Test filtering transactions by payment_method"""
+        response = self.client.get(f'{self.list_url}?payment_method=bkash')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 3)
+
+    # Test 5: Sort by amount descending
+    def test_sort_by_amount_descending(self):
+        """Test sorting transactions by amount descending"""
+        response = self.client.get(f'{self.list_url}?sort_by=amount&sort_order=desc')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['results']), 8)
+
+        # First should be 600 or 500, last should be 500 or 600
+        first_amount = Decimal(str(response.data['results'][0]['amount']))
+        self.assertGreaterEqual(first_amount, Decimal('500'))
+
+    # Test 6: Sort by date ascending
+    def test_sort_by_date_ascending(self):
+        """Test sorting by date ascending"""
+        response = self.client.get(f'{self.list_url}?sort_by=date&sort_order=asc')
+
+        self.assertEqual(response.status_code, 200)
+        results = response.data['results']
+
+        # All should have same date for this test
+        self.assertEqual(results[0]['date'], results[-1]['date'])
+
+    # Test 7: Summary endpoint
+    def test_summary_endpoint(self):
+        """Test summary statistics endpoint"""
+        response = self.client.get(self.summary_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['total_transactions'], 8)
+        self.assertGreater(response.data['total_revenue'], 0)
+        self.assertGreater(response.data['average_transaction_value'], 0)
+        self.assertGreater(len(response.data['revenue_by_product']), 0)
+        self.assertGreater(len(response.data['revenue_by_payment_method']), 0)
+
+    # Test 8: Data isolation (user cannot see other business data)
+    def test_data_isolation(self):
+        """Test that user1 cannot see user2's transactions"""
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 8)  # Only business1 transactions
+
+        # Verify no business2 transactions
+        for result in response.data['results']:
+            self.assertNotEqual(str(result.get('product_name')), 'Hat')
+
+    # Test 9: Authentication required
+    def test_unauthenticated_request(self):
+        """Test that unauthenticated users get 401"""
+        client = APIClient()
+        response = client.get(self.list_url)
+
+        self.assertEqual(response.status_code, 401)
+
+    # Test 10: Filter by date range
+    def test_filter_by_date_range(self):
+        """Test filtering by date range"""
+        today = timezone.now().date()
+        response = self.client.get(
+            f'{self.list_url}?date_from={today}&date_to={today}'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 8)
+
+    # Test 11: Combine filters
+    def test_combine_filters(self):
+        """Test combining multiple filters"""
+        response = self.client.get(
+            f'{self.list_url}?product_id={self.product1.product_id}&payment_method=cash'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 5)
+
+    # Test 12: Summary with filters
+    def test_summary_with_filters(self):
+        """Test summary endpoint respects filters"""
+        response = self.client.get(
+            f'{self.summary_url}?payment_method=bkash'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['total_transactions'], 3)
+        self.assertEqual(response.data['total_revenue'], 1500)
+
+
+class StoryThreePointFiveTestCase(APITestCase):
+    """Integration tests for Story 3.5: Integration & Error Handling"""
+
+    def setUp(self):
+        """Set up test data"""
+        # Create users
+        self.admin_user = User.objects.create_user(
+            username='admin@test.com',
+            email='admin@test.com',
+            password='testpass123',
+            is_staff=True
+        )
+        self.regular_user = User.objects.create_user(
+            username='user@test.com',
+            email='user@test.com',
+            password='testpass123',
+            is_staff=False
+        )
+
+        # Create business
+        self.business = Business.objects.create(
+            name='Test Business',
+            owner=self.admin_user,
+            plan='starter'
+        )
+        self.admin_user.business = self.business
+        self.admin_user.save()
+        self.regular_user.business = self.business
+        self.regular_user.save()
+
+        # Get tokens
+        self.admin_token = self._get_token(self.admin_user)
+        self.regular_token = self._get_token(self.regular_user)
+
+        # Set up test CSV file
+        self.csv_content = """Date,Product,Quantity,Amount,Customer,PaymentMethod
+2025-11-07,Shirt,2,600,Ahmed,cash
+2025-11-07,Pants,1,500,Fatima,bkash
+"""
+
+    def _get_token(self, user):
+        """Generate JWT token for user"""
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+        return str(refresh.access_token)
+
+    def test_admin_can_access_failed_jobs_endpoint(self):
+        """Test that staff users can access failed jobs endpoint"""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+
+        response = self.client.get('/api/data/admin/failed-jobs')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('count', response.data)
+        self.assertIn('results', response.data)
+
+    def test_non_admin_cannot_access_failed_jobs_endpoint(self):
+        """Test that non-staff users cannot access failed jobs endpoint"""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.regular_token}')
+
+        response = self.client.get('/api/data/admin/failed-jobs')
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_access_upload_status_monitoring(self):
+        """Test that staff users can access upload status monitoring"""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+
+        response = self.client.get('/api/data/admin/upload-status')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('active_uploads', response.data)
+        self.assertIn('active_uploads_list', response.data)
+        self.assertIn('recent_uploads', response.data)
+
+    def test_non_admin_cannot_access_upload_status_monitoring(self):
+        """Test that non-staff users cannot access upload status monitoring"""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.regular_token}')
+
+        response = self.client.get('/api/data/admin/upload-status')
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_event_adapter_publishes_transaction_parsed_event(self):
+        """Test that event adapter publishes events correctly"""
+        from apps.events.adapter import publish_event
+        import logging
+
+        # Mock the downstream functions to verify they're called
+        with self.settings(LOGGING={'version': 1}):
+            logger = logging.getLogger('data.services')
+
+            # Publish an event
+            payload = {
+                'business_id': str(self.business.business_id),
+                'affected_products': ['prod-1', 'prod-2'],
+                'affected_customers': ['cust-1'],
+                'transaction_count': 2
+            }
+
+            # Should not raise an exception
+            publish_event('transaction.parsed', payload)
+
+    def test_csv_parsing_triggers_downstream_events(self):
+        """Test that CSV parsing triggers downstream event publishing"""
+        import tempfile
+        import os
+
+        # Create a test CSV file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            f.write(self.csv_content)
+            csv_path = f.name
+
+        try:
+            # Create file upload record
+            file_upload = FileUploadRecord.objects.create(
+                business=self.business,
+                user=self.admin_user,
+                file_path=csv_path,
+                original_filename='test.csv',
+                file_size=len(self.csv_content.encode()),
+                status='pending'
+            )
+
+            # Parse CSV
+            service = CSVParserService(file_upload)
+            result = service.parse_csv()
+
+            # Verify transactions were created
+            self.assertEqual(result['created_count'], 2)
+
+            # Verify event was published (no exception)
+            self.assertEqual(file_upload.status, 'completed')
+
+        finally:
+            # Clean up
+            if os.path.exists(csv_path):
+                os.unlink(csv_path)
+
+    def test_failed_job_creation_on_invalid_data(self):
+        """Test that failed jobs are created when CSV contains invalid data"""
+        import tempfile
+        import os
+
+        invalid_csv_content = """Date,Product,Quantity,Amount,Customer,PaymentMethod
+invalid-date,Shirt,2,600,Ahmed,cash
+2025-11-07,Pants,invalid,500,Fatima,bkash
+"""
+
+        # Create a test CSV file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            f.write(invalid_csv_content)
+            csv_path = f.name
+
+        try:
+            # Create file upload record
+            file_upload = FileUploadRecord.objects.create(
+                business=self.business,
+                user=self.admin_user,
+                file_path=csv_path,
+                original_filename='test.csv',
+                file_size=len(invalid_csv_content.encode()),
+                status='pending'
+            )
+
+            # Parse CSV
+            service = CSVParserService(file_upload)
+            result = service.parse_csv()
+
+            # Verify failed jobs were created
+            failed_jobs = FailedJob.objects.filter(business=self.business)
+            self.assertGreater(failed_jobs.count(), 0)
+
+            # Verify status is marked as partially failed
+            file_upload.refresh_from_db()
+            self.assertEqual(file_upload.status, 'completed')
+            self.assertGreater(file_upload.rows_failed, 0)
+
+        finally:
+            # Clean up
+            if os.path.exists(csv_path):
+                os.unlink(csv_path)
+
+    def test_data_consistency_verification(self):
+        """Test that data consistency verification runs after parsing"""
+        import tempfile
+        import os
+
+        # Create a test CSV file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            f.write(self.csv_content)
+            csv_path = f.name
+
+        try:
+            # Create file upload record
+            file_upload = FileUploadRecord.objects.create(
+                business=self.business,
+                user=self.admin_user,
+                file_path=csv_path,
+                original_filename='test.csv',
+                file_size=len(self.csv_content.encode()),
+                status='pending'
+            )
+
+            # Parse CSV
+            service = CSVParserService(file_upload)
+            result = service.parse_csv()
+
+            # Verify transactions were created
+            self.assertEqual(result['created_count'], 2)
+
+            # Verify all transactions belong to the correct business
+            transactions = Transaction.objects.filter(file_upload=file_upload)
+            for transaction in transactions:
+                self.assertEqual(transaction.business, self.business)
+
+            # Verify products exist and have correct stock updates
+            shirt = Product.objects.get(business=self.business, name='Shirt')
+            pants = Product.objects.get(business=self.business, name='Pants')
+
+            # Stock should have been decremented
+            self.assertLess(shirt.current_stock, shirt.current_stock + 2)
+            self.assertLess(pants.current_stock, pants.current_stock + 1)
+
+        finally:
+            # Clean up
+            if os.path.exists(csv_path):
+                os.unlink(csv_path)

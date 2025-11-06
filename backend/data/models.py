@@ -80,6 +80,10 @@ class Transaction(models.Model):
     class Meta:
         ordering = ['-date', '-created_at']
         unique_together = ('business', 'csv_import_hash')  # Prevent duplicates per business
+        indexes = [
+            models.Index(fields=['business', 'date']),
+            models.Index(fields=['business', 'created_at']),
+        ]
 
     def __str__(self):
         return f"{self.product.name} x{self.quantity} on {self.date}"
@@ -139,3 +143,38 @@ class FailedJob(models.Model):
 
     def __str__(self):
         return f"Failed row {self.row_number} from {self.file_upload.original_filename}"
+
+
+class ReceiptUploadRecord(models.Model):
+    """Track receipt image uploads and their OCR processing status"""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    image_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='receipt_uploads')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='receipt_uploads')
+
+    file_path = models.CharField(max_length=500)
+    original_filename = models.CharField(max_length=255)
+    file_size = models.BigIntegerField()
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    # OCR extracted data
+    extracted_data = models.JSONField(blank=True, null=True)  # {date, items, total, confidence}
+    created_transactions = models.IntegerField(default=0)
+    error_message = models.TextField(blank=True, null=True)
+
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    processing_started_at = models.DateTimeField(blank=True, null=True)
+    processing_completed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"{self.original_filename} ({self.status})"

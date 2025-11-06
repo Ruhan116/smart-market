@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import FileUploadRecord, Transaction, Product, Customer
+from .models import FileUploadRecord, Transaction, Product, Customer, ReceiptUploadRecord
 
 
 class FileUploadResponseSerializer(serializers.Serializer):
@@ -56,3 +56,28 @@ class CustomerSerializer(serializers.ModelSerializer):
         model = Customer
         fields = ['customer_id', 'name', 'total_purchases', 'last_purchase', 'created_at']
         read_only_fields = fields
+
+
+class ReceiptStatusSerializer(serializers.ModelSerializer):
+    """Serializer for receipt upload status polling"""
+    class Meta:
+        model = ReceiptUploadRecord
+        fields = [
+            'image_id', 'status', 'original_filename', 'file_size',
+            'extracted_data', 'created_transactions', 'error_message',
+            'processing_started_at', 'processing_completed_at', 'percent_complete'
+        ]
+        read_only_fields = fields
+
+    percent_complete = serializers.SerializerMethodField()
+
+    def get_percent_complete(self, obj):
+        """Calculate completion percentage based on status"""
+        if obj.status == 'pending':
+            return 0
+        elif obj.status == 'processing':
+            return 50
+        elif obj.status == 'completed':
+            return 100
+        else:  # failed
+            return 0

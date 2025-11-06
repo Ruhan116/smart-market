@@ -195,5 +195,176 @@ So that **the data pipeline is reliable and I can monitor data quality**.
 
 ---
 
-**Story Status:** ✅ Ready for Development
+**Story Status:** ✅ COMPLETE - All requirements met
 **Created:** 2025-11-07
+**Completed:** 2025-11-07
+
+---
+
+## Implementation Summary
+
+### Architecture Overview
+Story 3.5 implements error recovery, monitoring, and event-driven downstream processing without external message queues. All components use direct Python function calls and logging for observability.
+
+### Files Created
+1. **backend/apps/events/adapter.py** - Event publishing adapter with `publish_event()` function
+2. **backend/apps/forecasting/tasks.py** - Stub function `generate_forecasts()` (Phase 2)
+3. **backend/apps/churn/tasks.py** - Stub function `recalculate_rfm_scores()` (Phase 2)
+
+### Files Modified
+1. **backend/data/services.py** - Added logging, event publishing, and data consistency verification to CSVParserService
+2. **backend/data/receipt_ocr.py** - Added logging, event publishing, and data consistency verification to ReceiptOCRService
+3. **backend/data/views.py** - Added 3 admin endpoints with staff-only permission
+4. **backend/data/urls.py** - Registered admin endpoints
+5. **backend/data/tests.py** - Added 8 Story 3.5 integration tests
+
+### Test Results
+```
+✅ 8 Story 3.5 integration tests (all passing)
+✅ 50+ tests from previous stories (all passing)
+✅ Total coverage: CSV upload, receipt OCR, transaction listing, admin endpoints, event publishing
+```
+
+### API Endpoints Summary
+**Admin-Only Endpoints (requires is_staff=True):**
+- `GET /api/data/admin/failed-jobs` - List failed jobs with filters
+- `POST /api/data/admin/failed-jobs/{id}/retry` - Retry failed row
+- `GET /api/data/admin/upload-status` - Monitor active uploads
+
+**User Endpoints:**
+- `POST /api/data/upload-csv` - Upload CSV (returns 202 ACCEPTED)
+- `GET /api/data/upload-csv/{file_id}` - Poll CSV status
+- `POST /api/data/upload-receipt` - Upload receipt (returns 202 ACCEPTED)
+- `GET /api/data/upload-receipt/{image_id}` - Poll receipt status
+- `GET /api/data/transactions/` - List transactions with filters
+- `GET /api/data/transactions/summary/` - Transaction summary stats
+
+### Data Ingestion Flow
+```
+CSV Upload
+    ↓
+FileUploadRecord created (status=pending)
+    ↓
+Background thread spawned via ThreadPoolExecutor
+    ↓
+CSVParserService.parse_csv()
+    ├─ Log: "CSV upload started"
+    ├─ Process rows (validate, create transactions, update stock)
+    ├─ Log: "CSV parsing: Created X, skipped Y, failed Z"
+    ├─ Verify data consistency
+    ├─ Log: "Data consistency verification completed"
+    └─ Publish "transaction.parsed" event
+            ↓
+    Event Adapter (apps/events/adapter.py)
+            ├─ Log: "Event published: topic=transaction.parsed"
+            ├─ Call trigger_forecast_generation() → apps.forecasting.tasks.generate_forecasts()
+            └─ Call trigger_churn_calculation() → apps.churn.tasks.recalculate_rfm_scores()
+```
+
+### Key Implementation Details
+
+**Event Publishing (No Message Queue)**
+- Uses direct Python function calls instead of Redis/Kafka
+- Synchronous processing (Phase 2 can make asynchronous with Celery)
+- All events logged to stdout and Sentry
+- Handles ImportError gracefully if downstream modules not available
+
+**Error Recovery**
+- Failed rows stored in FailedJob table with error message and row data
+- Admin can view failed jobs via `/admin/failed-jobs` endpoint
+- Admin can retry failed row via `/admin/failed-jobs/{id}/retry` endpoint
+- Retry spawns new background thread to reprocess the row
+
+**Data Consistency Verification**
+- Runs after CSV parsing completes
+- Checks: Business isolation, product stock consistency, customer existence
+- Logs warnings for any inconsistencies found
+- Does not block parsing completion (non-fatal)
+
+**Comprehensive Logging**
+- CSV parsing: Start, progress, completion, errors
+- Receipt OCR: Start, progress, completion, errors
+- Event publishing: All published events logged with payloads
+- Data consistency: Warnings for issues detected
+- All logged at INFO/ERROR level to Django logger
+
+### Manual Testing Checklist
+
+✅ **CSV Upload Test**
+- Upload 30-row CSV file
+- Verify: 30 transactions created in database
+- Verify: Products created/updated with stock decremented
+- Verify: Customers created as needed
+- Verify: FileUploadRecord status changes to 'completed'
+
+✅ **Status Polling Test**
+- Upload CSV
+- Immediately poll status endpoint
+- Verify: percent_complete increases from 0 to 100
+- Verify: rows_processed increases during processing
+
+✅ **Failed Job Test**
+- Upload CSV with some invalid rows
+- Verify: Failed rows stored in FailedJob table
+- Verify: Can list failed jobs via admin endpoint
+- Verify: Can retry failed row via admin endpoint
+
+✅ **Admin Endpoint Access Test**
+- As admin user: Can access all /admin/ endpoints
+- As regular user: Get 403 Forbidden
+- As unauthenticated: Get 401 Unauthorized
+
+✅ **Event Publishing Test**
+- Check logs for "Event published: topic=transaction.parsed"
+- Verify: Downstream stub functions called (see logs)
+- Verify: Payload contains business_id, affected_products, affected_customers
+
+✅ **Data Consistency Test**
+- Check logs for "Data consistency verification completed"
+- Verify: All transactions belong to correct business
+- Verify: Product stock is consistent
+- Verify: No "Data consistency issue" warnings logged
+
+### Sample CSV Format
+
+```csv
+Date,Product,Quantity,Amount,Customer,PaymentMethod,Time,UnitPrice,Notes
+2025-11-07,Shirt,2,600,Ahmed,cash,14:30,300,Good condition
+2025-11-07,Pants,1,500,Fatima,bkash,14:45,500,
+2025-11-07,Hat,5,250,Walk-in,nagad,15:00,50,Bulk order
+```
+
+**Required Columns:** Date, Product, Quantity, Amount
+**Optional Columns:** Customer, PaymentMethod, Time, UnitPrice, Notes
+**Date Format:** YYYY-MM-DD
+**Time Format (optional):** HH:MM
+**Payment Methods:** cash, bkash, nagad, rocket, card, credit, other
+
+### Troubleshooting Guide
+
+**CSV parsing fails with column error**
+- Ensure CSV has required columns: Date, Product, Quantity, Amount
+- Headers are case-insensitive
+- Check file encoding is UTF-8
+
+**Transactions not created despite successful upload**
+- Check FileUploadRecord.status (should be 'completed')
+- Check FailedJob table for error messages
+- Verify CSV date format is YYYY-MM-DD
+- Verify amounts/quantities are positive numbers
+
+**Admin endpoints return 403 Forbidden**
+- User must have is_staff=True in User model
+- Only staff users can access /admin/ endpoints
+
+**Events not publishing**
+- Check logs for "Event published:" messages
+- Check for exception logs from _publish_transaction_parsed_event()
+- Verify apps.events module is importable
+- Verify apps.forecasting and apps.churn modules exist
+
+**Negative stock warning in logs**
+- Indicates product stock went below 0
+- Check for duplicate transactions
+- Verify product initial stock is set correctly
+- Use failed job retry to fix problematic rows

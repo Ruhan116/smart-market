@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Product, Customer, Transaction, FileUploadRecord, FailedJob
+from .models import Product, Customer, Transaction, FileUploadRecord, FailedJob, ReceiptUploadRecord
 
 
 @admin.register(Product)
@@ -60,3 +60,29 @@ class FailedJobAdmin(admin.ModelAdmin):
     search_fields = ['error_message', 'file_upload__original_filename']
     readonly_fields = ['id', 'created_at', 'row_data']
     date_hierarchy = 'created_at'
+
+
+@admin.register(ReceiptUploadRecord)
+class ReceiptUploadRecordAdmin(admin.ModelAdmin):
+    list_display = ['original_filename', 'business', 'status', 'created_transactions', 'uploaded_at']
+    list_filter = ['business', 'status', 'uploaded_at']
+    search_fields = ['original_filename', 'business__name']
+    readonly_fields = ['image_id', 'uploaded_at', 'processing_started_at', 'processing_completed_at']
+
+    fieldsets = (
+        ('File Info', {
+            'fields': ('image_id', 'original_filename', 'file_path', 'file_size', 'business', 'user')
+        }),
+        ('Status', {
+            'fields': ('status', 'error_message')
+        }),
+        ('Processing Stats', {
+            'fields': ('created_transactions',)
+        }),
+        ('Extracted Data', {
+            'fields': ('extracted_data',)
+        }),
+        ('Timestamps', {
+            'fields': ('uploaded_at', 'processing_started_at', 'processing_completed_at')
+        }),
+    )
