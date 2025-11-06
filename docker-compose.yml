@@ -2,7 +2,7 @@ services:
   web:
     build: ./backend
     env_file:
-      - .env.local
+      # - .env.local
       - .env
     environment:
       - DATABASE_URL=${DATABASE_URL}
