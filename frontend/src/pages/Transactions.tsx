@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ErrorBanner } from '@/components/ErrorBanner';
@@ -9,6 +10,7 @@ const Transactions: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const fetchTransactions = async () => {
     try {
@@ -16,7 +18,7 @@ const Transactions: React.FC = () => {
       const { mockTransactions } = await import('@/services/mockData');
       await new Promise(resolve => setTimeout(resolve, 500));
       setTransactions(mockTransactions);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError('Failed to load transactions');
     } finally {
       setLoading(false);
@@ -37,7 +39,17 @@ const Transactions: React.FC = () => {
   return (
     <div className="mobile-padding min-h-screen bg-background">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4">Transaction History</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold">Transaction History</h1>
+          <div>
+            <button
+              className="px-3 py-2 rounded bg-primary text-white text-sm"
+              onClick={() => navigate('/barcode-scanner')}
+            >
+              Scan Barcode
+            </button>
+          </div>
+        </div>
 
         {error && <ErrorBanner message={error} onRetry={fetchTransactions} />}
 

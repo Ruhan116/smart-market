@@ -16,6 +16,7 @@ import ForecastDetails from "./pages/ForecastDetails";
 import Products from "./pages/Products";
 import Customers from "./pages/Customers";
 import Transactions from "./pages/Transactions";
+import BarcodeScanner from "./pages/BarcodeScanner";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -54,6 +55,7 @@ const AppContent = () => {
             <Route path="/products" element={<Products />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/transactions" element={<Transactions />} />
+            <Route path="/barcode-scanner" element={<BarcodeScanner />} />
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route path="*" element={<NotFound />} />
           </>
