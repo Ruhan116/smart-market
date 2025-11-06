@@ -10,3 +10,7 @@ ml_models/datasets/
 ml_models/training/
 
 .venv/
+
+
+backend/.env
+backend/.env.example
