@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ErrorBanner } from '@/components/ErrorBanner';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
 import {
   useFailedJobs,
   useUploadStatus,
@@ -16,6 +18,23 @@ import {
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'failed-jobs' | 'upload-status'>('failed-jobs');
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  // Staff-only access control
+  if (!user?.is_staff) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-destructive">Access Denied</h1>
+          <p className="text-muted-foreground mt-2">You must be staff to access this page.</p>
+          <Button onClick={() => navigate('/home')} className="mt-4">
+            Return to Home
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // API hooks
   const { data: failedJobsData, isLoading: failedJobsLoading, error: failedJobsError, refetch: refetchFailedJobs } = useFailedJobs();

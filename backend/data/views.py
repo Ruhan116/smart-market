@@ -28,7 +28,11 @@ _executor = ThreadPoolExecutor(max_workers=5)
 
 def _get_business(user):
     """Helper to get user's business"""
-    return user.business
+    try:
+        return user.business
+    except Exception:
+        # User doesn't have a business (RelatedObjectDoesNotExist)
+        return None
 
 
 def _validate_csv_file(file_obj):
@@ -134,9 +138,8 @@ def upload_csv(request):
         )
 
     # Get business
-    try:
-        business = _get_business(request.user)
-    except AttributeError:
+    business = _get_business(request.user)
+    if not business:
         return Response(
             {'error_code': 'NO_BUSINESS', 'message': 'User has no associated business'},
             status=HTTP_400_BAD_REQUEST
@@ -293,9 +296,8 @@ def upload_receipt(request):
         )
 
     # Get business
-    try:
-        business = _get_business(request.user)
-    except AttributeError:
+    business = _get_business(request.user)
+    if not business:
         return Response(
             {'error_code': 'NO_BUSINESS', 'message': 'User has no associated business'},
             status=HTTP_400_BAD_REQUEST
