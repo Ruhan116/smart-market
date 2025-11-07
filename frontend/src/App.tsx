@@ -16,6 +16,10 @@ import ForecastDetails from "./pages/ForecastDetails";
 import Products from "./pages/Products";
 import Customers from "./pages/Customers";
 import Transactions from "./pages/Transactions";
+import DataUpload from "./pages/DataUpload";
+import TransactionsList from "./pages/TransactionsList";
+import AdminDashboard from "./pages/AdminDashboard";
+import ReceiptPreview from "./pages/ReceiptPreview";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +37,7 @@ const AppContent = () => {
     { label: 'Forecasts', icon: '📈', path: '/forecasts' },
     { label: 'Products', icon: '📦', path: '/products' },
     { label: 'Customers', icon: '👥', path: '/customers' },
+    { label: 'Upload', icon: '📤', path: '/upload' },
   ];
 
   return (
@@ -54,6 +59,10 @@ const AppContent = () => {
             <Route path="/products" element={<Products />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/transactions" element={<Transactions />} />
+            <Route path="/upload" element={<DataUpload />} />
+            <Route path="/transactions/list" element={<TransactionsList />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/receipts/:imageId" element={<ReceiptPreview />} />
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route path="*" element={<NotFound />} />
           </>

@@ -4,6 +4,7 @@ export interface User {
   email: string;
   first_name: string;
   business_id: number;
+  is_staff?: boolean;
 }
 
 export interface AuthTokens {
