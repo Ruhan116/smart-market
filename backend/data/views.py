@@ -54,7 +54,10 @@ def _validate_csv_file(file_obj):
     try:
         file_obj.seek(0)
         import csv
-        reader = csv.DictReader(file_obj)
+        import io
+        # Wrap binary file in TextIOWrapper for csv reading
+        text_file = io.TextIOWrapper(file_obj, encoding='utf-8')
+        reader = csv.DictReader(text_file)
         row_count = 0
         for row in reader:
             row_count += 1
