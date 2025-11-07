@@ -48,11 +48,8 @@ export const useUploadCsv = (): UseMutationResult<any, Error, File> => {
     mutationFn: async (file: File) => {
       const formData = new FormData();
       formData.append('file', file);
-      return api.post('/data/upload-csv/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      // Don't manually set Content-Type - axios will handle multipart/form-data with proper boundary
+      return api.post('/data/upload-csv/', formData);
     },
     onError: (error: any) => {
       console.error('CSV upload failed:', error);
@@ -66,11 +63,8 @@ export const useUploadReceipt = (): UseMutationResult<any, Error, File> => {
     mutationFn: async (file: File) => {
       const formData = new FormData();
       formData.append('image', file);
-      return api.post('/data/upload-receipt/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      // Don't manually set Content-Type - axios will handle multipart/form-data with proper boundary
+      return api.post('/data/upload-receipt/', formData);
     },
     onError: (error: any) => {
       console.error('Receipt upload failed:', error);
