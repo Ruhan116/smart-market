@@ -16,10 +16,18 @@ from rest_framework.status import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.pagination import PageNumberPagination
-from .models import FileUploadRecord, Transaction, ReceiptUploadRecord, Product, Customer, FailedJob
-from .serializers import FileUploadStatusSerializer, TransactionSerializer, ReceiptStatusSerializer
+from .models import (
+    FileUploadRecord, Transaction, ReceiptUploadRecord, Product, Customer, FailedJob,
+    InventoryUploadRecord, StockMovement, StockAlert
+)
+from .serializers import (
+    FileUploadStatusSerializer, TransactionSerializer, ReceiptStatusSerializer,
+    InventoryUploadStatusSerializer, ProductDetailSerializer, StockMovementSerializer,
+    StockAlertSerializer, InventoryReportSerializer
+)
 from .services import CSVParserService
 from .receipt_ocr import ReceiptOCRService
+from .inventory_service import InventoryUploadService, SaleRecorderService, InventoryReportService
 
 # Thread pool executor for background processing
 # Max 5 concurrent uploads as per requirements
@@ -815,3 +823,304 @@ def reject_receipt(request, image_id):
         'status': 'rejected',
         'message': 'Receipt rejected'
     })
+
+
+# ============================================================================
+# INVENTORY MANAGEMENT ENDPOINTS
+# ============================================================================
+
+
+def _process_inventory_upload(record_id):
+    """Background task to process inventory CSV file"""
+    try:
+        inventory_upload = InventoryUploadRecord.objects.get(record_id=record_id)
+        service = InventoryUploadService(inventory_upload)
+        result = service.process_csv()
+        return result
+    except Exception as e:
+        return {'status': 'failed', 'error': str(e)}
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_inventory_csv(request):
+    """
+    Upload inventory/stock CSV file
+    POST /api/inventory/upload-stock/
+
+    Expected CSV columns: Product, Quantity, Unit Price (optional), SKU (optional)
+    """
+    business = _get_business(request.user)
+    if not business:
+        return Response(
+            {'error_code': 'NO_BUSINESS', 'message': 'User has no associated business'},
+            status=HTTP_400_BAD_REQUEST
+        )
+
+    # Get file
+    file_obj = request.FILES.get('file')
+
+    # Validate file
+    is_valid, message = _validate_csv_file(file_obj)
+    if not is_valid:
+        return Response(
+            {'error_code': 'INVALID_FILE_FORMAT', 'message': message},
+            status=HTTP_400_BAD_REQUEST
+        )
+
+    # Save file
+    file_path = _save_uploaded_file(file_obj, business.id)
+
+    # Create InventoryUploadRecord
+    inventory_upload = InventoryUploadRecord.objects.create(
+        business=business,
+        user=request.user,
+        file_path=file_path,
+        original_filename=file_obj.name,
+        file_size=file_obj.size,
+        status='pending'
+    )
+
+    # Spawn background thread to process file
+    _executor.submit(_process_inventory_upload, inventory_upload.record_id)
+
+    return Response(
+        {
+            'status': 'pending',
+            'data': {
+                'message': 'Processing inventory file...',
+                'record_id': str(inventory_upload.record_id),
+                'file_name': file_obj.name,
+            }
+        },
+        status=HTTP_202_ACCEPTED
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_inventory_upload_status(request, record_id):
+    """
+    Get inventory upload status
+    GET /api/inventory/upload-stock/{record_id}/
+    """
+    try:
+        business = _get_business(request.user)
+        inventory_upload = InventoryUploadRecord.objects.get(record_id=record_id, business=business)
+    except InventoryUploadRecord.DoesNotExist:
+        return Response(
+            {'error': 'Upload record not found'},
+            status=HTTP_404_NOT_FOUND
+        )
+
+    serializer = InventoryUploadStatusSerializer(inventory_upload)
+    data = serializer.data
+
+    if inventory_upload.status == 'completed':
+        data['errors'] = inventory_upload.processing_errors
+
+    return Response(data)
+
+
+class ProductListViewSet(ModelViewSet):
+    """ViewSet for listing and managing products with inventory"""
+    serializer_class = ProductDetailSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'head', 'options']
+
+    def get_queryset(self):
+        """Get products for authenticated user's business"""
+        business = _get_business(self.request.user)
+        return Product.objects.filter(business=business).order_by('-current_stock')
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def record_sale(request):
+    """
+    Record a sale transaction and decrease product stock
+    POST /api/inventory/transactions/
+
+    Request body:
+    {
+        "product_id": "uuid",
+        "customer_id": "uuid",
+        "quantity": 5,
+        "unit_price": 100.00,
+        "payment_method": "cash",
+        "notes": "optional notes"
+    }
+    """
+    business = _get_business(request.user)
+    if not business:
+        return Response(
+            {'error': 'No business found'},
+            status=HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        product_id = request.data.get('product_id')
+        customer_id = request.data.get('customer_id')
+        quantity = int(request.data.get('quantity', 0))
+        unit_price = float(request.data.get('unit_price', 0))
+        payment_method = request.data.get('payment_method', 'cash')
+        notes = request.data.get('notes', '')
+
+        if not product_id or quantity <= 0 or unit_price <= 0:
+            return Response(
+                {'error': 'Invalid product_id, quantity, or unit_price'},
+                status=HTTP_400_BAD_REQUEST
+            )
+
+        # Record the sale
+        service = SaleRecorderService(business, request.user)
+        result = service.record_sale(
+            product_id=product_id,
+            customer_id=customer_id,
+            quantity=quantity,
+            unit_price=unit_price,
+            payment_method=payment_method,
+            notes=notes
+        )
+
+        if result.get('success'):
+            # Also create a Transaction record
+            try:
+                product = Product.objects.get(product_id=product_id, business=business)
+                customer = None
+                if customer_id:
+                    try:
+                        customer = Customer.objects.get(customer_id=customer_id, business=business)
+                    except Customer.DoesNotExist:
+                        pass
+
+                amount = quantity * unit_price
+
+                Transaction.objects.create(
+                    business=business,
+                    product=product,
+                    customer=customer,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    amount=amount,
+                    payment_method=payment_method,
+                    date=timezone.now().date(),
+                    notes=notes
+                )
+            except Exception as e:
+                # Log but don't fail the sale
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to create transaction record: {str(e)}")
+
+            return Response(result, status=HTTP_201_CREATED)
+        else:
+            return Response(result, status=HTTP_400_BAD_REQUEST)
+
+    except (ValueError, TypeError) as e:
+        return Response(
+            {'error': f'Invalid input: {str(e)}'},
+            status=HTTP_400_BAD_REQUEST
+        )
+
+
+class StockMovementViewSet(ModelViewSet):
+    """ViewSet for viewing stock movements"""
+    serializer_class = StockMovementSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'head', 'options']
+    pagination_class = TransactionPagination
+
+    def get_queryset(self):
+        """Get stock movements for authenticated user's business"""
+        business = _get_business(self.request.user)
+        queryset = StockMovement.objects.filter(business=business).select_related('product', 'created_by')
+
+        # Apply filters
+        product_id = self.request.query_params.get('product_id')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        movement_type = self.request.query_params.get('movement_type')
+        if movement_type:
+            queryset = queryset.filter(movement_type=movement_type)
+
+        date_from = self.request.query_params.get('date_from')
+        if date_from:
+            try:
+                from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
+                queryset = queryset.filter(created_at__date__gte=from_date)
+            except ValueError:
+                pass
+
+        date_to = self.request.query_params.get('date_to')
+        if date_to:
+            try:
+                to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
+                queryset = queryset.filter(created_at__date__lte=to_date)
+            except ValueError:
+                pass
+
+        return queryset.order_by('-created_at')
+
+
+class StockAlertViewSet(ModelViewSet):
+    """ViewSet for managing stock alerts"""
+    serializer_class = StockAlertSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def get_queryset(self):
+        """Get stock alerts for authenticated user's business"""
+        business = _get_business(self.request.user)
+        queryset = StockAlert.objects.filter(business=business).select_related('product', 'acknowledged_by')
+
+        # Filter unacknowledged alerts by default
+        is_acknowledged = self.request.query_params.get('is_acknowledged')
+        if is_acknowledged is not None:
+            queryset = queryset.filter(is_acknowledged=is_acknowledged.lower() == 'true')
+        else:
+            queryset = queryset.filter(is_acknowledged=False)
+
+        return queryset.order_by('-created_at')
+
+    @action(detail=True, methods=['post'])
+    def acknowledge(self, request, pk=None):
+        """Acknowledge a stock alert"""
+        business = _get_business(request.user)
+        try:
+            alert = StockAlert.objects.get(alert_id=pk, business=business)
+            alert.is_acknowledged = True
+            alert.acknowledged_at = timezone.now()
+            alert.acknowledged_by = request.user
+            alert.save()
+            return Response({
+                'status': 'acknowledged',
+                'message': 'Alert acknowledged',
+                'alert_id': str(alert.alert_id)
+            })
+        except StockAlert.DoesNotExist:
+            return Response(
+                {'error': 'Alert not found'},
+                status=HTTP_404_NOT_FOUND
+            )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_inventory_report(request):
+    """
+    Get comprehensive inventory report
+    GET /api/inventory/report/
+    """
+    business = _get_business(request.user)
+    if not business:
+        return Response(
+            {'error': 'No business found'},
+            status=HTTP_400_BAD_REQUEST
+        )
+
+    service = InventoryReportService(business)
+    report = service.get_inventory_report()
+
+    return Response(report)

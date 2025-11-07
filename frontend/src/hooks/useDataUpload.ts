@@ -44,7 +44,7 @@ export interface PaginatedResponse<T> {
   average_value?: number;
 }
 
-// CSV Upload Hook
+// Transaction CSV Upload Hook (Past Sales Data)
 export const useUploadCsv = (): UseMutationResult<any, Error, File> => {
   return useMutation({
     mutationFn: async (file: File) => {
@@ -54,7 +54,22 @@ export const useUploadCsv = (): UseMutationResult<any, Error, File> => {
       return api.post('/data/upload-csv/', formData);
     },
     onError: (error: any) => {
-      console.error('CSV upload failed:', error);
+      console.error('Transaction CSV upload failed:', error);
+    },
+  });
+};
+
+// Inventory Stock CSV Upload Hook (Current Stock & Prices)
+export const useUploadInventoryCsv = (): UseMutationResult<any, Error, File> => {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      // Don't manually set Content-Type - axios will handle multipart/form-data with proper boundary
+      return api.post('/inventory/upload-stock/', formData);
+    },
+    onError: (error: any) => {
+      console.error('Inventory CSV upload failed:', error);
     },
   });
 };

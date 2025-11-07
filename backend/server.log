@@ -47,3 +47,117 @@ Quit the server with CTRL-BREAK.
 WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
 For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
 Watching for file changes with StatReloader
+D:\Thesis\Hoes\Sheba\SME\backend\data\models.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 07, 2025 - 22:14:59
+Django version 5.2.7, using settings 'project.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Watching for file changes with StatReloader
+D:\Thesis\Hoes\Sheba\SME\backend\data\admin.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 07, 2025 - 22:56:18
+Django version 5.2.7, using settings 'project.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Watching for file changes with StatReloader
+D:\Thesis\Hoes\Sheba\SME\backend\data\admin.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+
+You have 1 unapplied migration(s). Your project may not work properly until you apply the migrations for app(s): data.
+Run 'python manage.py migrate' to apply them.
+November 07, 2025 - 22:56:38
+Django version 5.2.7, using settings 'project.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Watching for file changes with StatReloader
+D:\Thesis\Hoes\Sheba\SME\backend\data\serializers.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+
+You have 1 unapplied migration(s). Your project may not work properly until you apply the migrations for app(s): data.
+Run 'python manage.py migrate' to apply them.
+November 07, 2025 - 22:56:48
+Django version 5.2.7, using settings 'project.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Watching for file changes with StatReloader
+D:\Thesis\Hoes\Sheba\SME\backend\data\serializers.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+
+You have 1 unapplied migration(s). Your project may not work properly until you apply the migrations for app(s): data.
+Run 'python manage.py migrate' to apply them.
+November 07, 2025 - 22:56:57
+Django version 5.2.7, using settings 'project.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Watching for file changes with StatReloader
+D:\Thesis\Hoes\Sheba\SME\backend\data\views.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+
+You have 1 unapplied migration(s). Your project may not work properly until you apply the migrations for app(s): data.
+Run 'python manage.py migrate' to apply them.
+November 07, 2025 - 22:57:06
+Django version 5.2.7, using settings 'project.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Watching for file changes with StatReloader
+D:\Thesis\Hoes\Sheba\SME\backend\data\views.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+
+You have 1 unapplied migration(s). Your project may not work properly until you apply the migrations for app(s): data.
+Run 'python manage.py migrate' to apply them.
+November 07, 2025 - 22:57:36
+Django version 5.2.7, using settings 'project.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Watching for file changes with StatReloader
+D:\Thesis\Hoes\Sheba\SME\backend\data\urls.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+
+You have 1 unapplied migration(s). Your project may not work properly until you apply the migrations for app(s): data.
+Run 'python manage.py migrate' to apply them.
+November 07, 2025 - 22:57:56
+Django version 5.2.7, using settings 'project.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Watching for file changes with StatReloader

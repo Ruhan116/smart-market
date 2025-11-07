@@ -178,3 +178,110 @@ class ReceiptUploadRecord(models.Model):
 
     def __str__(self):
         return f"{self.original_filename} ({self.status})"
+
+
+class InventoryUploadRecord(models.Model):
+    """Track CSV inventory/stock uploads and their processing status"""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    record_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='inventory_uploads')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='inventory_uploads')
+
+    file_path = models.CharField(max_length=500)
+    original_filename = models.CharField(max_length=255)
+    file_size = models.BigIntegerField()
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    row_count = models.IntegerField(default=0)
+    rows_processed = models.IntegerField(default=0)
+    rows_failed = models.IntegerField(default=0)
+    products_updated = models.IntegerField(default=0)
+
+    error_message = models.TextField(blank=True, null=True)
+    processing_errors = models.JSONField(default=list, blank=True)
+
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    processing_started_at = models.DateTimeField(blank=True, null=True)
+    processing_completed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"{self.original_filename} ({self.status})"
+
+
+class StockMovement(models.Model):
+    """Track all stock movements (sales, adjustments, returns, etc.)"""
+    MOVEMENT_TYPE_CHOICES = [
+        ('initial_load', 'Initial Load'),
+        ('sale', 'Sale'),
+        ('adjustment', 'Adjustment'),
+        ('return', 'Return'),
+        ('damage', 'Damage'),
+        ('restock', 'Restock'),
+    ]
+
+    movement_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='stock_movements')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_movements')
+
+    movement_type = models.CharField(max_length=20, choices=MOVEMENT_TYPE_CHOICES)
+    quantity_changed = models.IntegerField()  # Can be negative
+    stock_before = models.IntegerField()
+    stock_after = models.IntegerField()
+
+    # Reference to related object (transaction, upload, etc.)
+    reference_id = models.CharField(max_length=100, blank=True, null=True)
+    reference_type = models.CharField(max_length=50, blank=True, null=True)  # 'transaction', 'upload', 'manual', etc.
+
+    notes = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_movements')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['business', 'product', '-created_at']),
+            models.Index(fields=['business', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.movement_type} x{self.quantity_changed} {self.product.name}"
+
+
+class StockAlert(models.Model):
+    """Track low stock and out of stock alerts"""
+    ALERT_TYPE_CHOICES = [
+        ('low_stock', 'Low Stock'),
+        ('out_of_stock', 'Out of Stock'),
+    ]
+
+    alert_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='stock_alerts')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_alerts')
+
+    alert_type = models.CharField(max_length=20, choices=ALERT_TYPE_CHOICES)
+    threshold = models.IntegerField()  # Reorder point or 0 for out of stock
+    current_stock = models.IntegerField()
+
+    is_acknowledged = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    acknowledged_at = models.DateTimeField(blank=True, null=True)
+    acknowledged_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='acknowledged_stock_alerts')
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['business', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.alert_type}: {self.product.name}"

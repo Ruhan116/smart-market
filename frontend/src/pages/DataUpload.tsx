@@ -1,28 +1,34 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
 import { ErrorBanner } from '@/components/ErrorBanner';
 import { toast } from 'sonner';
-import { useUploadCsv, useUploadReceipt, useUploadStatus, UploadStatus } from '@/hooks/useDataUpload';
+import { useUploadCsv, useUploadInventoryCsv, useUploadReceipt, useUploadStatus, UploadStatus } from '@/hooks/useDataUpload';
 
 const DataUpload: React.FC = () => {
-  const [uploadTab, setUploadTab] = useState<'csv' | 'receipt'>('csv');
-  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [activeTab, setActiveTab] = useState<'transactions' | 'inventory' | 'receipt'>('transactions');
+  const [transactionFile, setTransactionFile] = useState<File | null>(null);
+  const [inventoryFile, setInventoryFile] = useState<File | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const csvInputRef = useRef<HTMLInputElement>(null);
+
+  const transactionInputRef = useRef<HTMLInputElement>(null);
+  const inventoryInputRef = useRef<HTMLInputElement>(null);
   const receiptInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
   // API hooks
-  const uploadCsvMutation = useUploadCsv();
+  const uploadTransactionMutation = useUploadCsv();
+  const uploadInventoryMutation = useUploadInventoryCsv();
   const uploadReceiptMutation = useUploadReceipt();
   const { data: uploadStatusData, isLoading: statusLoading } = useUploadStatus();
   const uploadHistory: UploadStatus[] = uploadStatusData?.results || [];
 
-  const handleCsvSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle file selection for transactions
+  const handleTransactionSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
@@ -33,11 +39,29 @@ const DataUpload: React.FC = () => {
         setError('CSV file exceeds maximum size of 10MB');
         return;
       }
-      setCsvFile(file);
+      setTransactionFile(file);
       setError(null);
     }
   };
 
+  // Handle file selection for inventory
+  const handleInventorySelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+        setError('Please select a CSV file');
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        setError('CSV file exceeds maximum size of 10MB');
+        return;
+      }
+      setInventoryFile(file);
+      setError(null);
+    }
+  };
+
+  // Handle file selection for receipt
   const handleReceiptSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -55,16 +79,16 @@ const DataUpload: React.FC = () => {
     }
   };
 
-  const handleUploadCsv = async () => {
-    if (!csvFile) return;
+  // Handle transaction upload
+  const handleUploadTransaction = async () => {
+    if (!transactionFile) return;
 
     setError(null);
     try {
-      await uploadCsvMutation.mutateAsync(csvFile);
-      toast.success('CSV uploaded successfully! Processing has started.');
-      setCsvFile(null);
-      if (csvInputRef.current) csvInputRef.current.value = '';
-      // Refetch upload status
+      await uploadTransactionMutation.mutateAsync(transactionFile);
+      toast.success('Transaction CSV uploaded! Processing has started.');
+      setTransactionFile(null);
+      if (transactionInputRef.current) transactionInputRef.current.value = '';
       queryClient.refetchQueries({ queryKey: ['upload-status'] });
     } catch (err: any) {
       const message = err.response?.data?.message || 'Failed to upload CSV file';
@@ -73,6 +97,25 @@ const DataUpload: React.FC = () => {
     }
   };
 
+  // Handle inventory upload
+  const handleUploadInventory = async () => {
+    if (!inventoryFile) return;
+
+    setError(null);
+    try {
+      await uploadInventoryMutation.mutateAsync(inventoryFile);
+      toast.success('Inventory CSV uploaded! Processing has started.');
+      setInventoryFile(null);
+      if (inventoryInputRef.current) inventoryInputRef.current.value = '';
+      queryClient.refetchQueries({ queryKey: ['upload-status'] });
+    } catch (err: any) {
+      const message = err.response?.data?.message || 'Failed to upload inventory file';
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  // Handle receipt upload
   const handleUploadReceipt = async () => {
     if (!receiptFile) return;
 
@@ -82,9 +125,7 @@ const DataUpload: React.FC = () => {
       toast.success('Receipt uploaded! Please review the extracted data.');
       setReceiptFile(null);
       if (receiptInputRef.current) receiptInputRef.current.value = '';
-      // Refetch upload status
       queryClient.refetchQueries({ queryKey: ['upload-status'] });
-      // Navigate to receipt preview if imageId is in response
       if (response.data?.id) {
         window.location.href = `/receipts/${response.data.id}`;
       }
@@ -126,58 +167,54 @@ const DataUpload: React.FC = () => {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold mb-2">📤 Upload Sales Data</h1>
+          <h1 className="text-3xl font-bold mb-2">📤 Data Upload & Import</h1>
           <p className="text-muted-foreground">
-            Import transaction data from CSV files or receipt images
+            Upload transaction history, inventory stock, or receipt images
           </p>
         </div>
 
         {error && <ErrorBanner message={error} onRetry={() => setError(null)} />}
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-muted">
-          <Button
-            variant={uploadTab === 'csv' ? 'default' : 'ghost'}
-            onClick={() => setUploadTab('csv')}
-            className="rounded-b-none"
-          >
-            📋 CSV Upload
-          </Button>
-          <Button
-            variant={uploadTab === 'receipt' ? 'default' : 'ghost'}
-            onClick={() => setUploadTab('receipt')}
-            className="rounded-b-none"
-          >
-            📸 Receipt Upload
-          </Button>
-        </div>
+        <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="w-full mb-6">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="transactions">📊 Sales History</TabsTrigger>
+            <TabsTrigger value="inventory">📦 Inventory Stock</TabsTrigger>
+            <TabsTrigger value="receipt">📸 Receipt OCR</TabsTrigger>
+          </TabsList>
 
-        {/* CSV Upload Tab */}
-        {uploadTab === 'csv' && (
-          <div className="space-y-6">
+          {/* Transactions Tab */}
+          <TabsContent value="transactions" className="space-y-6 mt-6">
+            <div>
+              <h2 className="text-xl font-semibold mb-2">📊 Upload Transaction History CSV</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                Import past sales transactions to populate your history
+              </p>
+            </div>
+
             {/* Upload Area */}
             <Card className="border-2 border-dashed border-muted p-8">
               <div className="text-center">
-                <div className="text-5xl mb-4">📄</div>
-                <h3 className="text-lg font-semibold mb-2">Upload CSV File</h3>
+                <div className="text-5xl mb-4">📋</div>
+                <h3 className="text-lg font-semibold mb-2">Upload Transaction CSV</h3>
                 <p className="text-muted-foreground mb-6">
-                  Import transaction data from a CSV file
+                  Import historical sales data
                 </p>
 
-                {!csvFile ? (
+                {!transactionFile ? (
                   <div className="space-y-4">
                     <input
-                      ref={csvInputRef}
+                      ref={transactionInputRef}
                       type="file"
                       accept=".csv"
-                      onChange={handleCsvSelect}
+                      onChange={handleTransactionSelect}
                       className="hidden"
-                      disabled={uploadCsvMutation.isPending}
+                      disabled={uploadTransactionMutation.isPending}
                     />
                     <Button
-                      onClick={() => csvInputRef.current?.click()}
+                      onClick={() => transactionInputRef.current?.click()}
                       className="w-full"
-                      disabled={uploadCsvMutation.isPending}
+                      disabled={uploadTransactionMutation.isPending}
                     >
                       Choose File
                     </Button>
@@ -188,27 +225,27 @@ const DataUpload: React.FC = () => {
                 ) : (
                   <div className="space-y-4">
                     <Card className="p-4 bg-primary/5">
-                      <p className="font-semibold text-sm">{csvFile.name}</p>
+                      <p className="font-semibold text-sm">{transactionFile.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {(csvFile.size / 1024).toFixed(2)} KB
+                        {(transactionFile.size / 1024).toFixed(2)} KB
                       </p>
                     </Card>
                     <div className="flex gap-2">
                       <Button
-                        onClick={handleUploadCsv}
-                        disabled={uploadCsvMutation.isPending}
+                        onClick={handleUploadTransaction}
+                        disabled={uploadTransactionMutation.isPending}
                         className="flex-1"
                       >
-                        {uploadCsvMutation.isPending ? '⏳ Uploading...' : '✅ Upload'}
+                        {uploadTransactionMutation.isPending ? '⏳ Uploading...' : '✅ Upload'}
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() => {
-                          setCsvFile(null);
-                          if (csvInputRef.current)
-                            csvInputRef.current.value = '';
+                          setTransactionFile(null);
+                          if (transactionInputRef.current)
+                            transactionInputRef.current.value = '';
                         }}
-                        disabled={uploadCsvMutation.isPending}
+                        disabled={uploadTransactionMutation.isPending}
                       >
                         ✕ Cancel
                       </Button>
@@ -218,11 +255,11 @@ const DataUpload: React.FC = () => {
               </div>
             </Card>
 
-            {/* CSV Format Guide */}
+            {/* Format Guide */}
             <Card className="p-6 bg-muted/30">
               <h4 className="font-semibold mb-4">📋 CSV Format Guide</h4>
               <p className="text-sm text-muted-foreground mb-3">
-                Your CSV file should include these columns:
+                Your CSV should include these columns:
               </p>
               <div className="space-y-2 text-sm font-mono">
                 <div className="flex justify-between">
@@ -235,11 +272,11 @@ const DataUpload: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-primary">Quantity *</span>
-                  <span className="text-muted-foreground">Number</span>
+                  <span className="text-muted-foreground">Number sold</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-primary">Amount *</span>
-                  <span className="text-muted-foreground">Price in Taka</span>
+                  <span className="text-muted-foreground">Total price</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Customer</span>
@@ -247,21 +284,125 @@ const DataUpload: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>PaymentMethod</span>
-                  <span className="text-muted-foreground">
-                    cash, bkash, nagad, etc
-                  </span>
+                  <span className="text-muted-foreground">cash, bkash, etc</span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-4">* Required fields</p>
+            </Card>
+          </TabsContent>
+
+          {/* Inventory Tab */}
+          <TabsContent value="inventory" className="space-y-6 mt-6">
+            <div>
+              <h2 className="text-xl font-semibold mb-2">📦 Upload Current Inventory Stock</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                Set your current stock levels and product prices
+              </p>
+            </div>
+
+            {/* Upload Area */}
+            <Card className="border-2 border-dashed border-muted p-8">
+              <div className="text-center">
+                <div className="text-5xl mb-4">📦</div>
+                <h3 className="text-lg font-semibold mb-2">Upload Inventory CSV</h3>
+                <p className="text-muted-foreground mb-6">
+                  Set current stock levels and prices
+                </p>
+
+                {!inventoryFile ? (
+                  <div className="space-y-4">
+                    <input
+                      ref={inventoryInputRef}
+                      type="file"
+                      accept=".csv"
+                      onChange={handleInventorySelect}
+                      className="hidden"
+                      disabled={uploadInventoryMutation.isPending}
+                    />
+                    <Button
+                      onClick={() => inventoryInputRef.current?.click()}
+                      className="w-full"
+                      disabled={uploadInventoryMutation.isPending}
+                    >
+                      Choose File
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Maximum file size: 10MB
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <Card className="p-4 bg-primary/5">
+                      <p className="font-semibold text-sm">{inventoryFile.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {(inventoryFile.size / 1024).toFixed(2)} KB
+                      </p>
+                    </Card>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleUploadInventory}
+                        disabled={uploadInventoryMutation.isPending}
+                        className="flex-1"
+                      >
+                        {uploadInventoryMutation.isPending ? '⏳ Uploading...' : '✅ Upload'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setInventoryFile(null);
+                          if (inventoryInputRef.current)
+                            inventoryInputRef.current.value = '';
+                        }}
+                        disabled={uploadInventoryMutation.isPending}
+                      >
+                        ✕ Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Format Guide */}
+            <Card className="p-6 bg-muted/30">
+              <h4 className="font-semibold mb-4">📦 CSV Format Guide</h4>
+              <p className="text-sm text-muted-foreground mb-3">
+                Your CSV should include these columns:
+              </p>
+              <div className="space-y-2 text-sm font-mono">
+                <div className="flex justify-between">
+                  <span className="text-primary">Product *</span>
+                  <span className="text-muted-foreground">Product name</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-primary">Quantity *</span>
+                  <span className="text-muted-foreground">Current stock count</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Unit Price</span>
+                  <span className="text-muted-foreground">Optional price per unit</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>SKU</span>
+                  <span className="text-muted-foreground">Optional stock code</span>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-4">
-                * Required fields
+                Example: Rice, 100, 50.00, SKU-001
               </p>
+              <p className="text-xs text-muted-foreground mt-2">* Required fields</p>
             </Card>
-          </div>
-        )}
+          </TabsContent>
 
-        {/* Receipt Upload Tab */}
-        {uploadTab === 'receipt' && (
-          <div className="space-y-6">
+          {/* Receipt Tab */}
+          <TabsContent value="receipt" className="space-y-6 mt-6">
+            <div>
+              <h2 className="text-xl font-semibold mb-2">📸 Upload Receipt Image</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                Scan or photograph your receipts and we'll extract the data
+              </p>
+            </div>
+
             {/* Upload Area */}
             <Card className="border-2 border-dashed border-muted p-8">
               <div className="text-center">
@@ -329,22 +470,14 @@ const DataUpload: React.FC = () => {
             <Card className="p-6 bg-muted/30">
               <h4 className="font-semibold mb-4">🔍 How Receipt OCR Works</h4>
               <div className="space-y-3 text-sm text-muted-foreground">
-                <p>
-                  📤 Upload a clear photo of your receipt or invoice
-                </p>
-                <p>
-                  🔍 Our AI extracts item names, quantities, and prices
-                </p>
-                <p>
-                  ✅ Review extracted data before adding to your records
-                </p>
-                <p>
-                  💾 Transactions are automatically created in your system
-                </p>
+                <p>📤 Upload a clear photo of your receipt or invoice</p>
+                <p>🔍 Our AI extracts item names, quantities, and prices</p>
+                <p>✅ Review extracted data before adding to your records</p>
+                <p>💾 Transactions are automatically created in your system</p>
               </div>
             </Card>
-          </div>
-        )}
+          </TabsContent>
+        </Tabs>
 
         {/* Upload History */}
         {!statusLoading && uploadHistory.length > 0 && (
@@ -375,12 +508,7 @@ const DataUpload: React.FC = () => {
 
                     {upload.status === 'processing' && upload.total_rows > 0 && (
                       <div className="mb-2">
-                        <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary transition-all"
-                            style={{ width: `${progress}%` }}
-                          />
-                        </div>
+                        <Progress value={progress} className="h-2" />
                         <p className="text-xs text-muted-foreground mt-1">
                           {upload.processed_rows} / {upload.total_rows} processed ({progress.toFixed(0)}%)
                         </p>
