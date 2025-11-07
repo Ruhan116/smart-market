@@ -1,5 +1,7 @@
 import { useMutation, useQuery, UseQueryResult, UseMutationResult } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 import api from '@/services/api';
+import { useAuth } from './useAuth';
 
 // Types
 export interface UploadProgress {
@@ -126,6 +128,9 @@ export const useRetryFailedJob = (): UseMutationResult<any, Error, string> => {
 
 // Upload Status Hook
 export const useUploadStatus = (): UseQueryResult<PaginatedResponse<UploadStatus>, Error> => {
+  const { user } = useAuth();
+  const isStaff = !!user?.is_staff;
+
   return useQuery({
     queryKey: ['upload-status'],
     queryFn: async () => {
@@ -136,7 +141,15 @@ export const useUploadStatus = (): UseQueryResult<PaginatedResponse<UploadStatus
     },
     staleTime: 2 * 1000, // 2 seconds (real-time updates)
     gcTime: 1 * 60 * 1000, // 1 minute
-    refetchInterval: 5 * 1000, // Auto-refetch every 5 seconds
+    refetchInterval: isStaff ? 5 * 1000 : false,
+    enabled: isStaff,
+    retry: (failureCount, error) => {
+      const status = (error as AxiosError)?.response?.status;
+      if (status === 403) {
+        return false;
+      }
+      return failureCount < 3;
+    },
   });
 };
 

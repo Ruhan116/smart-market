@@ -56,22 +56,27 @@ def _validate_csv_file(file_obj):
 
     # Try to read first 10 rows
     try:
-        file_obj.seek(0)
         import csv
         import io
-        # Wrap binary file in TextIOWrapper for csv reading
-        text_file = io.TextIOWrapper(file_obj, encoding='utf-8')
-        reader = csv.DictReader(text_file)
+
+        file_obj.seek(0)
+        raw_bytes = file_obj.read()
+        if not raw_bytes:
+            return False, "CSV file appears to be empty"
+
+        preview_stream = io.StringIO(raw_bytes.decode('utf-8', errors='replace'))
+        reader = csv.DictReader(preview_stream)
         row_count = 0
-        for row in reader:
+        for _ in reader:
             row_count += 1
             if row_count >= 10:
                 break
-        file_obj.seek(0)
         if row_count == 0:
             return False, "CSV file appears to be empty"
     except Exception as e:
         return False, f"Invalid CSV format: {str(e)}"
+    finally:
+        file_obj.seek(0)
 
     return True, "Valid"
 
