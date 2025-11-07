@@ -692,3 +692,116 @@ class TransactionViewSet(ModelViewSet):
                 pass
 
         return queryset
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_receipt_preview(request, image_id):
+    """
+    Get receipt OCR preview data
+    GET /data/receipts/{image_id}/
+    """
+    try:
+        # Verify user owns this business
+        business = _get_business(request.user)
+        receipt_upload = ReceiptUploadRecord.objects.get(image_id=image_id, business=business)
+    except ReceiptUploadRecord.DoesNotExist:
+        return Response(
+            {'error': 'Receipt not found'},
+            status=HTTP_404_NOT_FOUND
+        )
+
+    # Get extracted items if available
+    extracted_data = receipt_upload.extracted_data or {}
+
+    return Response({
+        'id': str(receipt_upload.image_id),
+        'image_url': receipt_upload.file_path,  # or serve the actual media file
+        'extracted_items': extracted_data.get('items', []),
+        'total_amount': extracted_data.get('total_amount', 0),
+        'vendor_name': extracted_data.get('vendor_name'),
+        'transaction_date': extracted_data.get('transaction_date'),
+        'confidence_score': extracted_data.get('confidence_score', 0),
+        'status': receipt_upload.status,
+        'created_at': receipt_upload.uploaded_at
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def confirm_receipt(request, image_id):
+    """
+    Confirm receipt OCR data and create transaction
+    POST /data/receipts/{image_id}/confirm/
+    """
+    try:
+        # Verify user owns this business
+        business = _get_business(request.user)
+        receipt_upload = ReceiptUploadRecord.objects.get(image_id=image_id, business=business)
+    except ReceiptUploadRecord.DoesNotExist:
+        return Response(
+            {'error': 'Receipt not found'},
+            status=HTTP_404_NOT_FOUND
+        )
+
+    # Get items from request
+    items = request.data.get('items', [])
+
+    # Create transaction from receipt data
+    try:
+        extracted_data = receipt_upload.extracted_data or {}
+
+        # Create transaction
+        transaction = Transaction.objects.create(
+            business=business,
+            user=request.user,
+            product_id=extracted_data.get('product_id'),  # This may need adjustment
+            customer_id=extracted_data.get('customer_id'),  # This may need adjustment
+            quantity=sum(item.get('quantity', 1) for item in items),
+            amount=extracted_data.get('total_amount', 0),
+            payment_method='receipt_scan',
+            date=timezone.now().date(),
+            reference=f'RECEIPT_{receipt_upload.image_id}'
+        )
+
+        # Update receipt status
+        receipt_upload.status = 'confirmed'
+        receipt_upload.save()
+
+        return Response({
+            'status': 'confirmed',
+            'transaction_id': str(transaction.id),
+            'message': 'Transaction created from receipt'
+        }, status=HTTP_201_CREATED)
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=HTTP_400_BAD_REQUEST
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reject_receipt(request, image_id):
+    """
+    Reject receipt OCR processing
+    POST /data/receipts/{image_id}/reject/
+    """
+    try:
+        # Verify user owns this business
+        business = _get_business(request.user)
+        receipt_upload = ReceiptUploadRecord.objects.get(image_id=image_id, business=business)
+    except ReceiptUploadRecord.DoesNotExist:
+        return Response(
+            {'error': 'Receipt not found'},
+            status=HTTP_404_NOT_FOUND
+        )
+
+    # Update receipt status
+    receipt_upload.status = 'rejected'
+    receipt_upload.save()
+
+    return Response({
+        'status': 'rejected',
+        'message': 'Receipt rejected'
+    })
