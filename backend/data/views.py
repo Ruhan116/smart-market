@@ -7,10 +7,11 @@ from django.core.cache import cache
 from django.utils import timezone
 from django.db import models as db_models
 from django.db.models import Sum, Count, Avg, Q, Min, Max
+from django.db import transaction as db_transaction
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.status import (
-    HTTP_202_ACCEPTED, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED,
+    HTTP_202_ACCEPTED, HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED,
     HTTP_404_NOT_FOUND, HTTP_429_TOO_MANY_REQUESTS, HTTP_201_CREATED
 )
 from rest_framework.permissions import IsAuthenticated
@@ -42,6 +43,84 @@ def _get_business(user):
         # User doesn't have a business (RelatedObjectDoesNotExist)
         return None
 
+
+def _update_stock_alerts_for_product(product, business, user):
+    """Ensure stock alerts reflect current inventory state"""
+    now = timezone.now()
+
+    if product.current_stock == 0:
+        alert, created = StockAlert.objects.get_or_create(
+            business=business,
+            product=product,
+            alert_type='out_of_stock',
+            defaults={
+                'threshold': 0,
+                'current_stock': product.current_stock,
+                'is_acknowledged': False
+            }
+        )
+        if not created:
+            alert.current_stock = product.current_stock
+            alert.threshold = 0
+            alert.is_acknowledged = False
+            alert.acknowledged_at = None
+            alert.acknowledged_by = None
+            alert.save()
+
+        # Mark any low stock alerts as acknowledged
+        StockAlert.objects.filter(
+            business=business,
+            product=product,
+            alert_type='low_stock'
+        ).update(
+            current_stock=product.current_stock,
+            is_acknowledged=True,
+            acknowledged_at=now,
+            acknowledged_by=user
+        )
+
+    elif product.current_stock <= product.reorder_point:
+        alert, created = StockAlert.objects.get_or_create(
+            business=business,
+            product=product,
+            alert_type='low_stock',
+            defaults={
+                'threshold': product.reorder_point,
+                'current_stock': product.current_stock,
+                'is_acknowledged': False
+            }
+        )
+        if not created:
+            alert.current_stock = product.current_stock
+            alert.threshold = product.reorder_point
+            alert.is_acknowledged = False
+            alert.acknowledged_at = None
+            alert.acknowledged_by = None
+            alert.save()
+
+        # Mark out of stock alerts as acknowledged
+        StockAlert.objects.filter(
+            business=business,
+            product=product,
+            alert_type='out_of_stock'
+        ).update(
+            current_stock=product.current_stock,
+            is_acknowledged=True,
+            acknowledged_at=now,
+            acknowledged_by=user
+        )
+
+    else:
+        # Stock healthy - mark any alerts as acknowledged
+        StockAlert.objects.filter(
+            business=business,
+            product=product
+        ).update(
+            current_stock=product.current_stock,
+            is_acknowledged=True,
+            acknowledged_at=now,
+            acknowledged_by=user
+        )
 
 def _validate_csv_file(file_obj):
     """Validate CSV file before processing"""
@@ -1022,6 +1101,78 @@ def record_sale(request):
             {'error': f'Invalid input: {str(e)}'},
             status=HTTP_400_BAD_REQUEST
         )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def adjust_inventory(request):
+    """Manually adjust product inventory levels"""
+    business = _get_business(request.user)
+    if not business:
+        return Response({'error': 'No business found'}, status=HTTP_400_BAD_REQUEST)
+
+    product_id = request.data.get('product_id')
+    adjustment_type = request.data.get('adjustment_type', 'decrease')
+    notes = request.data.get('notes', '')
+
+    try:
+        quantity = int(request.data.get('quantity', 0))
+    except (TypeError, ValueError):
+        return Response({'error': 'Invalid quantity'}, status=HTTP_400_BAD_REQUEST)
+
+    if not product_id:
+        return Response({'error': 'product_id is required'}, status=HTTP_400_BAD_REQUEST)
+    if quantity <= 0:
+        return Response({'error': 'Quantity must be greater than 0'}, status=HTTP_400_BAD_REQUEST)
+
+    try:
+        product = Product.objects.get(product_id=product_id, business=business)
+    except Product.DoesNotExist:
+        return Response({'error': 'Product not found'}, status=HTTP_404_NOT_FOUND)
+
+    if adjustment_type not in ['increase', 'decrease']:
+        return Response({'error': 'adjustment_type must be "increase" or "decrease"'}, status=HTTP_400_BAD_REQUEST)
+
+    with db_transaction.atomic():
+        old_stock = product.current_stock
+
+        if adjustment_type == 'decrease':
+            if quantity > product.current_stock:
+                return Response(
+                    {'error': f'Insufficient stock. Available: {product.current_stock}'},
+                    status=HTTP_400_BAD_REQUEST
+                )
+            product.current_stock -= quantity
+            movement_type = 'adjustment'
+            quantity_changed = -quantity
+        else:
+            product.current_stock += quantity
+            movement_type = 'restock'
+            quantity_changed = quantity
+
+        product.save()
+
+        StockMovement.objects.create(
+            business=business,
+            product=product,
+            movement_type=movement_type,
+            quantity_changed=quantity_changed,
+            stock_before=old_stock,
+            stock_after=product.current_stock,
+            reference_type='manual_adjustment',
+            reference_id=str(uuid.uuid4()),
+            notes=notes or None,
+            created_by=request.user
+        )
+
+        # Update stock alerts based on new stock level
+        _update_stock_alerts_for_product(product, business, request.user)
+
+    return Response({
+        'success': True,
+        'new_stock': product.current_stock,
+        'movement_type': movement_type
+    }, status=HTTP_200_OK)
 
 
 class StockMovementViewSet(ModelViewSet):

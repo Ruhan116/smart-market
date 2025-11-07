@@ -106,7 +106,7 @@ const SaleRecorder: React.FC<SaleRecorderProps> = ({
     try {
       setLoading(true);
       const [productsRes, customersRes] = await Promise.all([
-        api.get('/inventory/products/?limit=1000'),
+        api.get('/data/inventory/products/?limit=1000'),
         api.get('/customers/?limit=1000'),
       ]);
       setProducts(productsRes.data.results || []);
@@ -138,7 +138,7 @@ const SaleRecorder: React.FC<SaleRecorderProps> = ({
         unit_price: selectedProduct.unit_price,
       };
 
-      const response = await api.post<{ new_stock: number }>('/inventory/transactions/', payload);
+  const response = await api.post<{ new_stock: number }>('/data/inventory/transactions/', payload);
 
       toast.success(
         `Sale recorded! New stock: ${response.data.new_stock} units`

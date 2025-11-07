@@ -190,7 +190,7 @@ const Home: React.FC = () => {
             <span className="text-sm">Forecasts</span>
           </Button>
           <Button
-            onClick={() => navigate('/products')}
+            onClick={() => navigate('/inventory')}
             variant="outline"
             className="h-20 flex-col gap-2"
           >

@@ -66,7 +66,7 @@ export const useUploadInventoryCsv = (): UseMutationResult<any, Error, File> => 
       const formData = new FormData();
       formData.append('file', file);
       // Don't manually set Content-Type - axios will handle multipart/form-data with proper boundary
-      return api.post('/inventory/upload-stock/', formData);
+  return api.post('/data/inventory/upload-stock/', formData);
     },
     onError: (error: any) => {
       console.error('Inventory CSV upload failed:', error);

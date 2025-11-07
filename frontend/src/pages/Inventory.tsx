@@ -1,14 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ErrorBanner } from '@/components/ErrorBanner';
-import SaleRecorder from '@/components/SaleRecorder';
 import api from '@/services/api';
 import { toast } from 'sonner';
+
+type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
+type InventoryFilter = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock';
 
 interface InventoryProduct {
   product_id: string;
@@ -74,10 +86,24 @@ const Inventory: React.FC = () => {
   const [report, setReport] = useState<InventoryReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'in_stock' | 'low_stock' | 'out_of_stock'>('all');
-  const [saleRecorderOpen, setSaleRecorderOpen] = useState(false);
-  const [selectedProductIdForSale, setSelectedProductIdForSale] = useState<string | undefined>();
+  const [filter, setFilter] = useState<InventoryFilter>('all');
+  const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
+  const [adjustMode, setAdjustMode] = useState<'increase' | 'decrease'>('decrease');
+  const [adjustProduct, setAdjustProduct] = useState<InventoryProduct | null>(null);
+  const [adjustQuantity, setAdjustQuantity] = useState<number>(1);
+  const [adjustNotes, setAdjustNotes] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
   const navigate = useNavigate();
+
+  const normalizeApiList = <T,>(payload: any): T[] => {
+    if (Array.isArray(payload)) {
+      return payload as T[];
+    }
+    if (Array.isArray(payload?.results)) {
+      return payload.results as T[];
+    }
+    return [];
+  };
 
   const fetchInventoryData = async () => {
     try {
@@ -86,16 +112,16 @@ const Inventory: React.FC = () => {
 
       // Fetch all inventory data in parallel
       const [productsRes, alertsRes, reportRes, movementsRes] = await Promise.all([
-        api.get('/inventory/products/'),
-        api.get('/inventory/alerts/'),
-        api.get('/inventory/report/'),
-        api.get('/inventory/movements/'),
+        api.get('/data/inventory/products/'),
+        api.get('/data/inventory/alerts/'),
+        api.get('/data/inventory/report/'),
+        api.get('/data/inventory/movements/'),
       ]);
 
-      setProducts(productsRes.data.results || []);
-      setAlerts(alertsRes.data.results || []);
+      setProducts(normalizeApiList<InventoryProduct>(productsRes.data));
+      setAlerts(normalizeApiList<StockAlert>(alertsRes.data));
       setReport(reportRes.data);
-      setMovements(movementsRes.data.results || []);
+      setMovements(normalizeApiList<StockMovement>(movementsRes.data));
     } catch (err: any) {
       const message = err.response?.data?.error || 'Failed to load inventory data';
       setError(message);
@@ -109,42 +135,135 @@ const Inventory: React.FC = () => {
     fetchInventoryData();
   }, []);
 
-  const getStockStatus = (stock: number, reorderPoint: number): { color: string; text: string; badge: string } => {
+  const getStockStatus = (
+    stock: number,
+    reorderPoint: number
+  ): { color: string; text: string; badgeVariant: BadgeVariant; badgeClassName?: string } => {
     if (stock === 0) {
-      return { color: 'bg-destructive', text: 'Out of Stock', badge: 'destructive' };
+      return { color: 'bg-destructive', text: 'Out of Stock', badgeVariant: 'destructive' };
     }
     if (stock <= reorderPoint) {
-      return { color: 'bg-warning', text: 'Low Stock', badge: 'warning' };
+      return {
+        color: 'bg-warning',
+        text: 'Low Stock',
+        badgeVariant: 'outline',
+        badgeClassName: 'border-warning text-warning',
+      };
     }
-    return { color: 'bg-success', text: 'In Stock', badge: 'success' };
+    return {
+      color: 'bg-success',
+      text: 'In Stock',
+      badgeVariant: 'secondary',
+      badgeClassName: 'bg-success text-success-foreground hover:bg-success/90',
+    };
   };
 
-  const handleRecordSale = (productId: string) => {
-    setSelectedProductIdForSale(productId);
-    setSaleRecorderOpen(true);
+  const resetAdjustForm = () => {
+    setAdjustProduct(null);
+    setAdjustMode('decrease');
+    setAdjustQuantity(1);
+    setAdjustNotes('');
   };
 
-  const handleAcknowledgeAlert = async (alertId: string) => {
+  const openAdjustDialog = (product: InventoryProduct, mode?: 'increase' | 'decrease') => {
+    resetAdjustForm();
+    setAdjustProduct(product);
+    setAdjustMode(mode ?? (product.current_stock === 0 ? 'increase' : 'decrease'));
+    setAdjustDialogOpen(true);
+  };
+
+  const handleAdjustStock = async () => {
+    if (!adjustProduct) {
+      return;
+    }
+
+    const sanitizedQuantity = Math.floor(Math.abs(adjustQuantity));
+
+    if (!Number.isFinite(sanitizedQuantity) || sanitizedQuantity <= 0) {
+      toast.error('Enter a quantity greater than zero');
+      return;
+    }
+
+    if (adjustMode === 'decrease' && sanitizedQuantity > adjustProduct.current_stock) {
+      toast.error(`Cannot decrease by more than ${adjustProduct.current_stock}`);
+      return;
+    }
+
+    setAdjusting(true);
     try {
-      await api.post(`/inventory/alerts/${alertId}/acknowledge/`);
-      toast.success('Alert acknowledged');
+      await api.post('/data/inventory/adjust-stock/', {
+        product_id: adjustProduct.product_id,
+        quantity: sanitizedQuantity,
+        adjustment_type: adjustMode,
+        notes: adjustNotes.trim() || undefined,
+      });
+
+      toast.success('Inventory updated');
+      setAdjustDialogOpen(false);
+      resetAdjustForm();
       fetchInventoryData();
     } catch (err: any) {
-      toast.error('Failed to acknowledge alert');
+      const message = err.response?.data?.error || 'Failed to adjust inventory';
+      toast.error(message);
+    } finally {
+      setAdjusting(false);
     }
   };
 
-  if (loading) {
-    return <LoadingSpinner fullScreen />;
-  }
+  const handleAlertReorder = (alert: StockAlert) => {
+    const matchingProduct = products.find(
+      (product) => product.name.toLowerCase() === alert.product_name.toLowerCase()
+    );
 
-  const filteredProducts = products.filter(product => {
+    if (!matchingProduct) {
+      toast.error('Product not found for this alert');
+      return;
+    }
+
+    openAdjustDialog(matchingProduct, 'increase');
+  };
+
+  const productStatusCounts = useMemo(() => {
+    const counts = {
+      all: products.length,
+      in_stock: 0,
+      low_stock: 0,
+      out_of_stock: 0,
+    };
+
+    products.forEach((product) => {
+      const status = getStockStatus(product.current_stock, product.reorder_point);
+      if (status.text === 'In Stock') counts.in_stock += 1;
+      else if (status.text === 'Low Stock') counts.low_stock += 1;
+      else if (status.text === 'Out of Stock') counts.out_of_stock += 1;
+    });
+
+    return counts;
+  }, [products]);
+
+  const filterOptions: Array<{
+    key: InventoryFilter;
+    label: string;
+    icon: string;
+    count: number;
+  }> = [
+    { key: 'all', label: 'All Products', icon: '📦', count: productStatusCounts.all },
+    { key: 'in_stock', label: 'In Stock', icon: '✅', count: productStatusCounts.in_stock },
+    { key: 'low_stock', label: 'Low Stock', icon: '⚠️', count: productStatusCounts.low_stock },
+    { key: 'out_of_stock', label: 'Out of Stock', icon: '✗', count: productStatusCounts.out_of_stock },
+  ];
+
+  const filteredProducts = products.filter((product) => {
     const status = getStockStatus(product.current_stock, product.reorder_point);
     if (filter === 'in_stock') return status.text === 'In Stock';
     if (filter === 'low_stock') return status.text === 'Low Stock';
     if (filter === 'out_of_stock') return status.text === 'Out of Stock';
     return true;
   });
+
+  if (loading) {
+    return <LoadingSpinner fullScreen />;
+  }
 
   return (
     <div className="mobile-padding min-h-screen bg-background">
@@ -233,7 +352,12 @@ const Inventory: React.FC = () => {
                           </div>
                           <div className="text-right">
                             <p className="font-semibold">৳{product.stock_value.toLocaleString()}</p>
-                            <Badge variant={status.badge as any} className="mt-1">{status.text}</Badge>
+                            <Badge
+                              variant={status.badgeVariant}
+                              className={`mt-1 ${status.badgeClassName ?? ''}`}
+                            >
+                              {status.text}
+                            </Badge>
                           </div>
                         </div>
                       );
@@ -248,19 +372,21 @@ const Inventory: React.FC = () => {
           <TabsContent value="products" className="space-y-4">
             {/* Filter Buttons */}
             <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-              {['all', 'in_stock', 'low_stock', 'out_of_stock'].map((f) => (
-                <Button
-                  key={f}
-                  onClick={() => setFilter(f as any)}
-                  variant={filter === f ? 'default' : 'outline'}
-                  size="sm"
-                >
-                  {f === 'all' && 'All Products'}
-                  {f === 'in_stock' && '✓ In Stock'}
-                  {f === 'low_stock' && '⚠ Low Stock'}
-                  {f === 'out_of_stock' && '✗ Out of Stock'}
-                </Button>
-              ))}
+                {filterOptions.map(({ key, label, icon, count }) => (
+                  <Button
+                    key={key}
+                    variant={filter === key ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFilter(key)}
+                    className="flex items-center gap-2"
+                  >
+                    <span>{icon}</span>
+                    <span>{label}</span>
+                    <Badge variant="secondary" className="ml-auto">
+                      {count}
+                    </Badge>
+                  </Button>
+                ))}
             </div>
 
             {/* Products List */}
@@ -280,7 +406,12 @@ const Inventory: React.FC = () => {
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-semibold text-lg">{product.name}</h3>
-                            <Badge variant={status.badge as any}>{status.text}</Badge>
+                            <Badge
+                              variant={status.badgeVariant}
+                              className={status.badgeClassName}
+                            >
+                              {status.text}
+                            </Badge>
                           </div>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <span>SKU: {product.sku}</span>
@@ -332,12 +463,17 @@ const Inventory: React.FC = () => {
                         <Button
                           size="sm"
                           className="flex-1"
-                          onClick={() => handleRecordSale(product.product_id)}
+                          onClick={() => openAdjustDialog(product)}
                         >
-                          📊 Record Sale
+                          ⚙️ Adjust Stock
                         </Button>
                         {product.current_stock <= product.reorder_point && (
-                          <Button size="sm" variant="outline" className="flex-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => openAdjustDialog(product, 'increase')}
+                          >
                             🔄 Reorder
                           </Button>
                         )}
@@ -427,7 +563,10 @@ const Inventory: React.FC = () => {
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-lg">{isOutOfStock ? '❌' : '⚠️'}</span>
                             <h3 className="font-semibold">{alert.product_name}</h3>
-                            <Badge variant={isOutOfStock ? 'destructive' : 'warning'}>
+                            <Badge
+                              variant={isOutOfStock ? 'destructive' : 'outline'}
+                              className={isOutOfStock ? undefined : 'border-warning text-warning'}
+                            >
                               {alert.alert_type === 'out_of_stock' ? 'Out of Stock' : 'Low Stock'}
                             </Badge>
                           </div>
@@ -438,9 +577,9 @@ const Inventory: React.FC = () => {
                         {!alert.is_acknowledged && (
                           <Button
                             size="sm"
-                            onClick={() => handleAcknowledgeAlert(alert.alert_id)}
+                            onClick={() => handleAlertReorder(alert)}
                           >
-                            ✓ Acknowledge
+                            🔄 Reorder
                           </Button>
                         )}
                         {alert.is_acknowledged && (
@@ -462,16 +601,115 @@ const Inventory: React.FC = () => {
           </TabsContent>
         </Tabs>
 
-        {/* Sale Recorder Modal */}
-        <SaleRecorder
-          open={saleRecorderOpen}
-          onOpenChange={setSaleRecorderOpen}
-          defaultProductId={selectedProductIdForSale}
-          onSaleRecorded={() => {
-            fetchInventoryData();
-            setSelectedProductIdForSale(undefined);
+        {/* Adjust Stock Dialog */}
+        <Dialog
+          open={adjustDialogOpen}
+          onOpenChange={(open) => {
+            setAdjustDialogOpen(open);
+            if (!open) {
+              resetAdjustForm();
+            }
           }}
-        />
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Adjust Stock</DialogTitle>
+              <DialogDescription>
+                {adjustProduct
+                  ? `Update stock levels for ${adjustProduct.name}.`
+                  : 'Select a product to adjust stock quantities.'}
+              </DialogDescription>
+            </DialogHeader>
+
+            {adjustProduct && (
+              <div className="space-y-4">
+                <div className="rounded-md border p-3 text-sm">
+                  <p className="font-medium">{adjustProduct.name}</p>
+                  <p className="text-muted-foreground">
+                    Current stock: <span className="font-semibold">{adjustProduct.current_stock}</span>
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <span className="text-sm font-medium">Adjustment type</span>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={adjustMode === 'decrease' ? 'default' : 'outline'}
+                      className="flex-1"
+                      onClick={() => setAdjustMode('decrease')}
+                    >
+                      ➖ Decrease
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={adjustMode === 'increase' ? 'default' : 'outline'}
+                      className="flex-1"
+                      onClick={() => setAdjustMode('increase')}
+                    >
+                      ➕ Increase
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="adjust-quantity" className="text-sm font-medium">
+                    Quantity
+                  </label>
+                  <Input
+                    id="adjust-quantity"
+                    type="number"
+                    min={1}
+                    value={adjustQuantity}
+                    onChange={(event) => {
+                      const nextValue = parseInt(event.target.value, 10);
+                      setAdjustQuantity(Number.isNaN(nextValue) ? 0 : Math.max(0, nextValue));
+                    }}
+                  />
+                  {adjustMode === 'decrease' && adjustProduct.current_stock > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Maximum decrease: {adjustProduct.current_stock}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="adjust-notes" className="text-sm font-medium">
+                    Notes (optional)
+                  </label>
+                  <Textarea
+                    id="adjust-notes"
+                    value={adjustNotes}
+                    onChange={(event) => setAdjustNotes(event.target.value)}
+                    placeholder="Why are you adjusting this stock?"
+                    rows={3}
+                  />
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="mt-6">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setAdjustDialogOpen(false);
+                  resetAdjustForm();
+                }}
+                disabled={adjusting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleAdjustStock}
+                disabled={adjusting || !adjustProduct}
+              >
+                {adjusting ? 'Updating…' : 'Save Adjustment'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
