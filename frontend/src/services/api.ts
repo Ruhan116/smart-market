@@ -13,6 +13,24 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // Normalise relative URLs so we don't accidentally drop the /api prefix from the base URL
+  if (typeof config.url === 'string') {
+    const urlLower = config.url.toLowerCase();
+    const isAbsolute = urlLower.startsWith('http://') || urlLower.startsWith('https://');
+    if (!isAbsolute && config.url.startsWith('/')) {
+      config.url = config.url.slice(1);
+    }
+    if (!isAbsolute && import.meta.env.DEV) {
+      // Helpful console trace so we can confirm requests fire with the expected URL during debugging
+      console.debug('[api] request', `${config.baseURL?.replace(/\/$/, '')}/${config.url}`);
+    }
+  }
+
+  // For FormData, don't set Content-Type - let browser handle it with proper boundary
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
   return config;
 });
 
@@ -41,10 +59,10 @@ api.interceptors.response.use(
           const newAccessToken = data.access || data.access_token;
           if (newAccessToken) {
             localStorage.setItem('access_token', newAccessToken);
-            if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+            if (error.config.headers) {
+              error.config.headers.Authorization = `Bearer ${newAccessToken}`;
             }
-            return api.request(originalRequest);
+            return api.request(error.config);
           }
         } catch {
           localStorage.removeItem('access_token');

@@ -16,6 +16,11 @@ import ForecastDetails from "./pages/ForecastDetails";
 import Products from "./pages/Products";
 import Customers from "./pages/Customers";
 import Transactions from "./pages/Transactions";
+import Inventory from "./pages/Inventory";
+import DataUpload from "./pages/DataUpload";
+import TransactionsList from "./pages/TransactionsList";
+import AdminDashboard from "./pages/AdminDashboard";
+import ReceiptPreview from "./pages/ReceiptPreview";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,9 +35,10 @@ const AppContent = () => {
   const bottomTabs = [
     { label: 'Home', icon: '🏠', path: '/home' },
     { label: 'Actions', icon: '⚡', path: '/recommendations' },
+    { label: 'Inventory', icon: '📊', path: '/inventory' },
     { label: 'Forecasts', icon: '📈', path: '/forecasts' },
-    { label: 'Products', icon: '📦', path: '/products' },
     { label: 'Customers', icon: '👥', path: '/customers' },
+    { label: 'Upload', icon: '📤', path: '/upload' },
   ];
 
   return (
@@ -49,11 +55,16 @@ const AppContent = () => {
           <>
             <Route path="/home" element={<Home />} />
             <Route path="/recommendations" element={<Recommendations />} />
+            <Route path="/inventory" element={<Inventory />} />
             <Route path="/forecasts" element={<Forecasts />} />
             <Route path="/forecasts/:productId" element={<ForecastDetails />} />
             <Route path="/products" element={<Products />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/transactions" element={<Transactions />} />
+            <Route path="/upload" element={<DataUpload />} />
+            <Route path="/transactions/list" element={<TransactionsList />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/receipts/:imageId" element={<ReceiptPreview />} />
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route path="*" element={<NotFound />} />
           </>

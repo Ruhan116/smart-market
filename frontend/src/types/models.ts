@@ -4,6 +4,7 @@ export interface User {
   email: string;
   first_name: string;
   business_id: number;
+  is_staff?: boolean;
 }
 
 export interface AuthTokens {
@@ -27,13 +28,19 @@ export interface Business {
 
 // Transaction
 export interface Transaction {
-  id: number;
-  date: string;
+  transaction_id: string;
+  product_id: string;
   product_name: string;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  date: string;
+  time?: string | null;
   quantity: number;
-  amount: number;
-  customer_name?: string;
-  payment_method?: string;
+  unit_price: number | string;
+  amount: number | string;
+  payment_method: string;
+  notes?: string | null;
+  created_at: string;
 }
 
 // Product (Inventory)

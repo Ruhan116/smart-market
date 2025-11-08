@@ -27,22 +27,8 @@ const Login: React.FC = () => {
       toast.success('✅ Welcome back!');
       navigate('/home');
     } catch (error: any) {
-      // Handle different error types
-      const status = error.response?.status;
-      let errorMsg = 'Login failed. Please try again.';
-
-      if (status === 401) {
-        errorMsg = '❌ Invalid email or password. Please check your credentials and try again.';
-      } else if (status === 429) {
-        errorMsg = '⏱️ Too many login attempts. Please try again later.';
-      } else if (error.response?.data?.detail) {
-        errorMsg = error.response.data.detail;
-      } else if (error.response?.data?.non_field_errors) {
-        errorMsg = error.response.data.non_field_errors[0];
-      } else if (error.message) {
-        errorMsg = error.message;
-      }
-
+      // Extract error message from backend response
+      const errorMsg = error.response?.data?.detail || error.message || 'Login failed. Please try again.';
       toast.error(errorMsg);
     } finally {
       setLoading(false);
