@@ -6,6 +6,8 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ErrorBanner } from '@/components/ErrorBanner';
 import { ChartStyle, ChartContainer, ChartTooltipContent, ChartLegendContent } from '@/components/forecasting/chart';
 import api from '@/services/api';
+import { Transaction } from '@/types/models';
+import { toast } from 'sonner';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -26,15 +28,6 @@ interface InventoryProduct {
   reorder_point: number;
   unit_price?: number;
   total_sales?: number;
-}
-
-interface StockMovement {
-  movement_id: string;
-  movement_type: string;
-  product_id: string;
-  product_name: string;
-  quantity_changed: number;
-  created_at: string;
 }
 
 interface ForecastInsight {
@@ -68,6 +61,17 @@ type ChartDataPoint = {
   upperBound?: number;
 };
 
+interface ReorderSuggestion {
+  recommendedQuantity: number;
+  predictedDemand: number;
+  currentStock: number;
+  netPosition: number;
+  coverageDays: number | null;
+  avgDailyPredicted: number;
+  reorderPoint: number;
+  horizonDays: number;
+}
+
 const ForecastDetails: React.FC = () => {
   const { productId } = useParams<{ productId: string }>();
   const navigate = useNavigate();
@@ -77,9 +81,14 @@ const ForecastDetails: React.FC = () => {
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({
     historical: true,
-    predicted: true,
-    confidence: true,
+    predicted: false,
+    confidence: false,
   });
+  const [historicalPoints, setHistoricalPoints] = useState<ChartDataPoint[]>([]);
+  const [forecastActivated, setForecastActivated] = useState(false);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [reorderSuggestion, setReorderSuggestion] = useState<ReorderSuggestion | null>(null);
 
   useEffect(() => {
     const normalize = <T,>(payload: any): T[] => {
@@ -88,18 +97,35 @@ const ForecastDetails: React.FC = () => {
       return [];
     };
 
+    const numberize = (value: number | string | undefined | null): number => {
+      if (value === undefined || value === null) return 0;
+      if (typeof value === 'number') return value;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
     const fetchForecastDetails = async () => {
       try {
-        setError(null);
-        setLoading(true);
+  setError(null);
+  setLoading(true);
+  setForecastActivated(false);
+  setReorderSuggestion(null);
+  setVisibleLines({ historical: true, predicted: false, confidence: false });
 
-        const [productsRes, movementsRes] = await Promise.all([
+        const [productsRes, transactionsRes] = await Promise.all([
           api.get('/data/inventory/products/'),
-          api.get('/data/inventory/movements/'),
+          api.get('/data/transactions/', {
+            params: {
+              limit: 1000,
+              sort_by: 'date',
+              sort_order: 'asc',
+              product_id: productId,
+            },
+          }),
         ]);
 
         const products = normalize<InventoryProduct>(productsRes.data);
-        const movements = normalize<StockMovement>(movementsRes.data);
+        const transactions = normalize<Transaction>(transactionsRes.data);
 
         const product = products.find((p) => p.product_id === productId);
         if (!product) {
@@ -109,11 +135,13 @@ const ForecastDetails: React.FC = () => {
 
         const dailySales = new Map<string, number>();
 
-        movements.forEach((movement) => {
-          if (movement.product_id !== productId) return;
-          if (movement.quantity_changed >= 0) return;
-          const dayKey = new Date(movement.created_at).toISOString().slice(0, 10);
-          const quantity = Math.abs(movement.quantity_changed);
+        transactions.forEach((transaction) => {
+          if (transaction.product_id !== productId) return;
+          const quantity = numberize(transaction.quantity);
+          if (quantity <= 0) return;
+          const txnDate = transaction.date || transaction.created_at;
+          if (!txnDate) return;
+          const dayKey = new Date(txnDate).toISOString().slice(0, 10);
           dailySales.set(dayKey, (dailySales.get(dayKey) ?? 0) + quantity);
         });
 
@@ -142,7 +170,9 @@ const ForecastDetails: React.FC = () => {
               data_points_used: 0,
             },
           });
-          setChartData([]);
+            setHistoricalPoints([]);
+            setChartData([]);
+            setGeneratedAt(new Date().toISOString());
           return;
         }
 
@@ -161,17 +191,12 @@ const ForecastDetails: React.FC = () => {
           }
         });
 
-        const historicalWindow = sortedEntries.slice(-30);
-        const historicalData: ChartDataPoint[] = historicalWindow.map(([date, qty]) => {
+        const historicalData: ChartDataPoint[] = sortedEntries.map(([date, qty]) => {
           const label = new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          const lower = qty * 0.85;
-          const upper = qty * 1.15;
           return {
             date: label,
             historical: qty,
             predicted: null,
-            lowerBound: lower,
-            upperBound: upper,
           };
         });
 
@@ -181,24 +206,9 @@ const ForecastDetails: React.FC = () => {
             return sum + diff * diff;
           }, 0) / sortedEntries.length
         );
-        const baseForecast = Math.max(0, avgDaily);
-        const horizon = 7;
-        const predictedData: ChartDataPoint[] = Array.from({ length: horizon }, (_, i) => {
-          const futureDate = new Date();
-          futureDate.setDate(futureDate.getDate() + i + 1);
-          const noise = volatility ? (Math.cos((i + 1) / horizon * Math.PI) * volatility * 0.2) : 0;
-          const quantity = Math.max(0, baseForecast + noise);
-          const margin = quantity * 0.2;
-          return {
-            date: futureDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            predicted: Number(quantity.toFixed(2)),
-            lowerBound: Math.max(0, quantity - margin),
-            upperBound: quantity + margin,
-          };
-        });
-
-        const combinedData = [...historicalData, ...predictedData];
-        setChartData(combinedData);
+        setHistoricalPoints(historicalData);
+        setChartData(historicalData);
+        setGeneratedAt(new Date().toISOString());
 
         const daysUntilStockout = avgDaily > 0 ? product.current_stock / avgDaily : Number.POSITIVE_INFINITY;
         const willStockout = Number.isFinite(daysUntilStockout) && daysUntilStockout <= 30;
@@ -244,6 +254,94 @@ const ForecastDetails: React.FC = () => {
     setVisibleLines(prev => ({ ...prev, [dataKey]: !prev[dataKey] }));
   };
 
+  const activateForecast = async () => {
+    if (!productId || forecastActivated) return;
+
+    try {
+      setForecastLoading(true);
+      const response = await api.get(`/data/forecast/${productId}/`, {
+        params: { periods: 30 },
+      });
+
+      const forecastPoints: ChartDataPoint[] = (response.data?.forecast ?? []).map((entry: any) => {
+        const baseDate = entry?.date ? new Date(`${entry.date}T00:00:00`) : new Date();
+        const formatNumber = (value: any) => {
+          const numeric = Number(value);
+          return Number.isFinite(numeric) ? Number(numeric.toFixed(2)) : 0;
+        };
+
+        return {
+          date: baseDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          predicted: formatNumber(entry?.predicted),
+          lowerBound: formatNumber(entry?.lower),
+          upperBound: formatNumber(entry?.upper),
+        };
+      });
+
+      if (forecastPoints.length === 0) {
+        toast.info('Forecast model did not return any future points.');
+        return;
+      }
+
+      setChartData([...historicalPoints, ...forecastPoints]);
+      setVisibleLines(prev => ({ ...prev, predicted: true, confidence: true }));
+      setForecastActivated(true);
+
+      if (response.data?.generated_at) {
+        setGeneratedAt(response.data.generated_at);
+      }
+
+      if (response.data?.metrics) {
+        const { mape, data_points } = response.data.metrics;
+        setForecast(curr =>
+          curr
+            ? {
+                ...curr,
+                accuracy: {
+                  mape: typeof mape === 'number' ? mape : curr.accuracy.mape,
+                  data_points_used: typeof data_points === 'number' ? data_points : curr.accuracy.data_points_used,
+                },
+              }
+            : curr
+        );
+      }
+
+      if (response.data?.reorder) {
+        const reorder = response.data.reorder;
+        const toNumber = (value: unknown): number => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : 0;
+        };
+
+        const normalizeCoverage = (): number | null => {
+          const raw = reorder.coverage_days;
+          if (raw === null || raw === undefined) {
+            return null;
+          }
+          const parsed = Number(raw);
+          return Number.isFinite(parsed) ? parsed : null;
+        };
+
+        const horizonCandidate = Number(response.data?.periods ?? 30);
+        setReorderSuggestion({
+          recommendedQuantity: Math.max(0, Math.round(toNumber(reorder.recommended_quantity))),
+          predictedDemand: toNumber(reorder.predicted_demand),
+          currentStock: toNumber(reorder.current_stock),
+          netPosition: toNumber(reorder.net_position),
+          coverageDays: normalizeCoverage(),
+          avgDailyPredicted: toNumber(reorder.avg_daily_predicted),
+          reorderPoint: toNumber(reorder.reorder_point),
+          horizonDays: Number.isFinite(horizonCandidate) ? horizonCandidate : 30,
+        });
+      }
+    } catch (err: any) {
+      const message = err?.response?.data?.error || 'Failed to generate forecast';
+      toast.error(message);
+    } finally {
+      setForecastLoading(false);
+    }
+  };
+
   const getRiskStatus = (forecast: ForecastInsight) => {
     if (forecast.stockout_risk.will_stockout && forecast.stockout_risk.days_until_stockout <= 3) {
       return { icon: '🔴', text: 'Critical', color: 'text-red-600 dark:text-red-400' };
@@ -272,7 +370,7 @@ const ForecastDetails: React.FC = () => {
   }
 
   const status = getRiskStatus(forecast);
-  const generatedAtLabel = new Date().toLocaleString();
+  const generatedAtLabel = generatedAt ? new Date(generatedAt).toLocaleString() : new Date().toLocaleString();
 
   const formattedPeakDate = forecast.summary.peak_date
     ? new Date(forecast.summary.peak_date + 'T00:00:00').toLocaleDateString()
@@ -353,9 +451,63 @@ const ForecastDetails: React.FC = () => {
           </Card>
         )}
 
+        {forecastActivated && reorderSuggestion && (
+          <Card className="p-6 mb-6 bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold mb-1">Reorder Guidance ({reorderSuggestion.horizonDays} Day Horizon)</h2>
+                <p className="text-sm text-emerald-900 dark:text-emerald-100">
+                  {reorderSuggestion.recommendedQuantity > 0
+                    ? `Plan to reorder ${reorderSuggestion.recommendedQuantity} units to remain stocked for the next ${reorderSuggestion.horizonDays} days.`
+                    : `Current inventory comfortably covers the next ${reorderSuggestion.horizonDays} days of projected demand.`}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm w-full md:w-auto">
+                <div>
+                  <p className="text-muted-foreground text-xs mb-1">Current Stock</p>
+                  <p className="font-semibold">{Math.round(reorderSuggestion.currentStock)} units</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs mb-1">Predicted Demand</p>
+                  <p className="font-semibold">{Math.round(reorderSuggestion.predictedDemand)} units</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs mb-1">Coverage</p>
+                  <p className="font-semibold">
+                    {Number.isFinite(reorderSuggestion.coverageDays ?? NaN)
+                      ? `${Math.max(0, Math.floor(reorderSuggestion.coverageDays ?? 0))} days`
+                      : 'N/A'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs mb-1">Projected Balance</p>
+                  <p className={`font-semibold ${reorderSuggestion.netPosition < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-300'}`}>
+                    {reorderSuggestion.netPosition >= 0
+                      ? `+${Math.round(reorderSuggestion.netPosition)} units`
+                      : `${Math.round(reorderSuggestion.netPosition)} units`}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              Reorder point: {Math.round(reorderSuggestion.reorderPoint)} units
+            </p>
+          </Card>
+        )}
+
         {/* Demand Forecast Chart */}
         <Card className="p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">Demand Forecast Visualization</h2>
+          <div className="flex justify-end mb-4">
+            <Button
+              variant={forecastActivated ? 'secondary' : 'default'}
+              size="sm"
+              onClick={activateForecast}
+              disabled={forecastActivated || forecastLoading}
+            >
+              {forecastActivated ? 'Forecast Ready' : forecastLoading ? 'Generating…' : 'Forecast'}
+            </Button>
+          </div>
 
           {chartData.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
@@ -420,7 +572,6 @@ const ForecastDetails: React.FC = () => {
                         dataKey="predicted"
                         stroke="var(--chart-predicted)"
                         strokeWidth={2}
-                        strokeDasharray="5 5"
                         dot={{ r: 3 }}
                         name="Predicted"
                         connectNulls={false}

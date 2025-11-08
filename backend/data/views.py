@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,7 @@ from .serializers import (
     StockAlertSerializer, InventoryReportSerializer
 )
 from .services import CSVParserService
+from .forecast_service import DemandForecastService
 from .receipt_ocr import ReceiptOCRService
 from .inventory_service import InventoryUploadService, SaleRecorderService, InventoryReportService
 
@@ -1180,6 +1182,73 @@ def adjust_inventory(request):
         'success': True,
         'new_stock': product.current_stock,
         'movement_type': movement_type
+    }, status=HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_product_forecast(request, product_id):
+    """Generate a demand forecast for the given product."""
+    business = _get_business(request.user)
+    if not business:
+        return Response({'error': 'No business found'}, status=HTTP_400_BAD_REQUEST)
+
+    try:
+        product = Product.objects.get(product_id=product_id, business=business)
+    except Product.DoesNotExist:
+        return Response({'error': 'Product not found'}, status=HTTP_404_NOT_FOUND)
+
+    periods_param = request.query_params.get('periods')
+    if periods_param is None:
+        periods = 30
+    else:
+        try:
+            periods = int(periods_param)
+        except (TypeError, ValueError):
+            return Response({'error': 'Invalid periods value'}, status=HTTP_400_BAD_REQUEST)
+
+    if periods <= 0 or periods > 180:
+        return Response({'error': 'periods must be between 1 and 180 days'}, status=HTTP_400_BAD_REQUEST)
+
+    service = DemandForecastService(business)
+
+    try:
+        result = service.forecast_product(product.product_id, periods=periods)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=HTTP_400_BAD_REQUEST)
+
+    predicted_total = 0.0
+    for point in result.forecast:
+        try:
+            predicted_total += float(point.get('predicted', 0) or 0)
+        except (TypeError, ValueError):
+            continue
+
+    avg_daily_predicted = predicted_total / periods if periods > 0 else 0.0
+    current_stock = product.current_stock
+    net_position = current_stock - predicted_total
+    recommended_reorder = max(0, math.ceil(predicted_total - current_stock))
+    coverage_days = None
+    if avg_daily_predicted > 0:
+        coverage_days = current_stock / avg_daily_predicted
+
+    return Response({
+        'product_id': str(product.product_id),
+        'product_name': product.name,
+        'historical': result.historical,
+        'forecast': result.forecast,
+        'metrics': result.metrics,
+        'generated_at': result.generated_at,
+        'periods': periods,
+        'reorder': {
+            'recommended_quantity': recommended_reorder,
+            'predicted_demand': predicted_total,
+            'current_stock': current_stock,
+            'net_position': net_position,
+            'coverage_days': coverage_days,
+            'avg_daily_predicted': avg_daily_predicted,
+            'reorder_point': product.reorder_point,
+        },
     }, status=HTTP_200_OK)
 
 
