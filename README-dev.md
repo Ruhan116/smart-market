@@ -38,9 +38,6 @@ Notes:
 cd F:\smart-market
 docker compose down --remove-orphans
 docker compose up -d --build
-  By default we now point Django at the Postgres container defined in `docker-compose.yml`
-  (`postgresql://sm_user:sm_pass@db:5432/smartmarket`). If you need to use the remote
-  Railway instance instead, swap `DATABASE_URL` in `.env` back to the Railway string.
 ```
 - The `web` container will read DATABASE_URL from `.env` and connect to Railway.
 

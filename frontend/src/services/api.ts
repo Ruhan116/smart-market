@@ -34,13 +34,24 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Auto-refresh on 401
+// Auto-refresh on 401 (but not for auth endpoints to prevent infinite loops)
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
+    const originalRequest = error.config;
+
+    // Don't auto-refresh on auth endpoints - let them return errors directly
+    const isAuthEndpoint =
+      originalRequest.url?.includes('/auth/login/') ||
+      originalRequest.url?.includes('/auth/register/') ||
+      originalRequest.url?.includes('/auth/token/refresh/');
+
+    if (error.response?.status === 401 && !isAuthEndpoint) {
       const refreshToken = localStorage.getItem('refresh_token');
-      if (refreshToken) {
+
+      // Prevent infinite retry loops - add a flag to track if we already tried to refresh
+      if (refreshToken && !originalRequest._retry) {
+        originalRequest._retry = true;
         try {
           const { data } = await axios.post(`${API_BASE}/auth/token/refresh/`, {
             refresh: refreshToken,
