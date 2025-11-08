@@ -5,7 +5,8 @@ from decimal import Decimal
 from django.db import transaction as db_transaction
 from django.utils import timezone
 from .models import (
-    Product, InventoryUploadRecord, StockMovement, StockAlert
+    Product, InventoryUploadRecord, StockMovement, StockAlert,
+    Transaction, Customer
 )
 
 logger = logging.getLogger(__name__)
@@ -216,66 +217,194 @@ class SaleRecorderService:
         self.user = user
 
     @db_transaction.atomic
-    def record_sale(self, product_id, customer_id, quantity, unit_price, payment_method, notes=None):
-        """Record a sale and decrease product quantity"""
+    def record_sale(
+        self,
+        *,
+        product_id,
+        quantity,
+        unit_price=None,
+        payment_method='cash',
+        customer_id=None,
+        customer_name=None,
+        notes=None,
+        date=None,
+        time=None
+    ):
+        """Record a sale, update stock, and persist transaction details"""
         try:
-            # Get product
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            raise ValueError("Quantity must be an integer greater than 0")
+
+        if quantity <= 0:
+            raise ValueError("Quantity must be greater than 0")
+
+        try:
             product = Product.objects.select_for_update().get(
                 product_id=product_id,
                 business=self.business
             )
+        except Product.DoesNotExist as exc:
+            raise ValueError('Product not found') from exc
 
-            # Validate quantity
-            if quantity <= 0:
-                raise ValueError("Quantity must be greater than 0")
+        if quantity > product.current_stock:
+            raise ValueError(f"Insufficient stock. Available: {product.current_stock}")
 
-            if quantity > product.current_stock:
-                raise ValueError(f"Insufficient stock. Available: {product.current_stock}")
+        # Resolve unit price
+        if unit_price in [None, '', 0, '0', '0.00']:
+            unit_price_value = product.unit_price
+        else:
+            try:
+                unit_price_value = Decimal(str(unit_price))
+            except Exception as exc:
+                raise ValueError('Invalid unit price') from exc
 
-            # Record stock movement
-            old_stock = product.current_stock
-            new_stock = old_stock - quantity
-            amount = quantity * unit_price
+        if unit_price_value <= 0:
+            raise ValueError('Unit price must be greater than 0')
 
-            movement = StockMovement.objects.create(
+        # Validate payment method
+        valid_methods = {choice[0] for choice in Transaction._meta.get_field('payment_method').choices}
+        if payment_method not in valid_methods:
+            raise ValueError('Invalid payment method')
+
+        sale_date = date or timezone.now().date()
+        sale_time = time or timezone.now().time().replace(microsecond=0)
+
+        # Resolve customer
+        customer = None
+        if customer_id:
+            try:
+                customer = Customer.objects.get(customer_id=customer_id, business=self.business)
+            except Customer.DoesNotExist as exc:
+                raise ValueError('Customer not found') from exc
+        elif customer_name:
+            customer_name = customer_name.strip()
+            if customer_name:
+                customer, _ = Customer.objects.get_or_create(
+                    business=self.business,
+                    name=customer_name,
+                    defaults={'total_purchases': Decimal('0'), 'last_purchase': sale_date}
+                )
+
+        old_stock = product.current_stock
+        new_stock = old_stock - quantity
+        amount = (unit_price_value * Decimal(quantity)).quantize(Decimal('0.01'))
+
+        transaction = Transaction.objects.create(
+            business=self.business,
+            product=product,
+            customer=customer,
+            date=sale_date,
+            time=sale_time,
+            quantity=quantity,
+            unit_price=unit_price_value,
+            amount=amount,
+            payment_method=payment_method,
+            notes=notes or None
+        )
+
+        movement = StockMovement.objects.create(
+            business=self.business,
+            product=product,
+            movement_type='sale',
+            quantity_changed=-quantity,
+            stock_before=old_stock,
+            stock_after=new_stock,
+            reference_type='transaction',
+            reference_id=str(transaction.transaction_id),
+            notes=notes or None,
+            created_by=self.user
+        )
+
+        product.current_stock = new_stock
+        product.save(update_fields=['current_stock', 'updated_at'])
+
+        if customer:
+            customer.total_purchases = (customer.total_purchases or Decimal('0')) + amount
+            customer.last_purchase = sale_date
+            customer.save(update_fields=['total_purchases', 'last_purchase', 'updated_at'])
+
+        # Maintain stock alerts
+        now = timezone.now()
+        if new_stock == 0:
+            alert, created = StockAlert.objects.get_or_create(
                 business=self.business,
                 product=product,
-                movement_type='sale',
-                quantity_changed=-quantity,
-                stock_before=old_stock,
-                stock_after=new_stock,
-                reference_type='sale',
-                notes=notes,
-                created_by=self.user
+                alert_type='out_of_stock',
+                defaults={
+                    'threshold': 0,
+                    'current_stock': new_stock,
+                    'is_acknowledged': False
+                }
+            )
+            if not created:
+                alert.current_stock = new_stock
+                alert.threshold = 0
+                alert.is_acknowledged = False
+                alert.acknowledged_at = None
+                alert.acknowledged_by = None
+                alert.save(update_fields=['current_stock', 'threshold', 'is_acknowledged', 'acknowledged_at', 'acknowledged_by'])
+
+            StockAlert.objects.filter(
+                business=self.business,
+                product=product,
+                alert_type='low_stock'
+            ).update(
+                current_stock=new_stock,
+                is_acknowledged=True,
+                acknowledged_at=now,
+                acknowledged_by=self.user
+            )
+        elif new_stock <= product.reorder_point:
+            alert, created = StockAlert.objects.get_or_create(
+                business=self.business,
+                product=product,
+                alert_type='low_stock',
+                defaults={
+                    'threshold': product.reorder_point,
+                    'current_stock': new_stock,
+                    'is_acknowledged': False
+                }
+            )
+            if not created:
+                alert.current_stock = new_stock
+                alert.threshold = product.reorder_point
+                alert.is_acknowledged = False
+                alert.acknowledged_at = None
+                alert.acknowledged_by = None
+                alert.save(update_fields=['current_stock', 'threshold', 'is_acknowledged', 'acknowledged_at', 'acknowledged_by'])
+
+            StockAlert.objects.filter(
+                business=self.business,
+                product=product,
+                alert_type='out_of_stock'
+            ).update(
+                current_stock=new_stock,
+                is_acknowledged=True,
+                acknowledged_at=now,
+                acknowledged_by=self.user
+            )
+        else:
+            StockAlert.objects.filter(
+                business=self.business,
+                product=product
+            ).update(
+                current_stock=new_stock,
+                is_acknowledged=True,
+                acknowledged_at=now,
+                acknowledged_by=self.user
             )
 
-            # Update product stock
-            product.current_stock = new_stock
-            product.save()
-
-            # Check for alerts
-            if new_stock == 0:
-                self._create_alert(product, 'out_of_stock', 0)
-            elif new_stock <= product.reorder_point:
-                self._create_alert(product, 'low_stock', product.reorder_point)
-
-            return {
-                'success': True,
-                'movement_id': str(movement.movement_id),
-                'new_stock': new_stock,
-                'amount': float(amount)
-            }
-
-        except Product.DoesNotExist:
-            return {'success': False, 'error': 'Product not found'}
-        except ValueError as e:
-            return {'success': False, 'error': str(e)}
-        except Exception as e:
-            logger.error(f"Error recording sale: {str(e)}")
-            return {'success': False, 'error': 'Failed to record sale'}
+        return {
+            'success': True,
+            'transaction': transaction,
+            'movement_id': str(movement.movement_id),
+            'new_stock': new_stock,
+            'amount': amount
+        }
 
     def _create_alert(self, product, alert_type, threshold):
-        """Create stock alert"""
+        """Deprecated in favour of inline alert management (retained for compatibility)."""
         alert, created = StockAlert.objects.get_or_create(
             business=self.business,
             product=product,

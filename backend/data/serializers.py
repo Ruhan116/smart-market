@@ -33,14 +33,17 @@ class FileUploadStatusSerializer(serializers.ModelSerializer):
 
 class TransactionSerializer(serializers.ModelSerializer):
     """Serializer for transactions"""
+    product_id = serializers.UUIDField(source='product.product_id', read_only=True)
     product_name = serializers.CharField(source='product.name', read_only=True)
-    customer_name = serializers.CharField(source='customer.name', read_only=True)
+    customer_id = serializers.UUIDField(source='customer.customer_id', read_only=True, allow_null=True)
+    customer_name = serializers.CharField(source='customer.name', read_only=True, allow_null=True)
 
     class Meta:
         model = Transaction
         fields = [
-            'transaction_id', 'product_name', 'customer_name', 'date', 'time',
-            'quantity', 'unit_price', 'amount', 'payment_method', 'notes'
+            'transaction_id', 'product_id', 'product_name', 'customer_id', 'customer_name',
+            'date', 'time', 'quantity', 'unit_price', 'amount', 'payment_method',
+            'notes', 'created_at'
         ]
         read_only_fields = fields
 
@@ -129,13 +132,14 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
 class StockMovementSerializer(serializers.ModelSerializer):
     """Serializer for stock movements"""
+    product_id = serializers.UUIDField(source='product.product_id', read_only=True)
     product_name = serializers.CharField(source='product.name', read_only=True)
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
 
     class Meta:
         model = StockMovement
         fields = [
-            'movement_id', 'movement_type', 'product_name', 'quantity_changed',
+            'movement_id', 'movement_type', 'product_id', 'product_name', 'quantity_changed',
             'stock_before', 'stock_after', 'reference_type', 'reference_id',
             'notes', 'created_by_name', 'created_at'
         ]
@@ -144,13 +148,14 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
 class StockAlertSerializer(serializers.ModelSerializer):
     """Serializer for stock alerts"""
+    product_id = serializers.UUIDField(source='product.product_id', read_only=True)
     product_name = serializers.CharField(source='product.name', read_only=True)
     acknowledged_by_name = serializers.CharField(source='acknowledged_by.get_full_name', read_only=True, allow_null=True)
 
     class Meta:
         model = StockAlert
         fields = [
-            'alert_id', 'alert_type', 'product_name', 'current_stock', 'threshold',
+            'alert_id', 'alert_type', 'product_id', 'product_name', 'current_stock', 'threshold',
             'is_acknowledged', 'acknowledged_by_name', 'created_at', 'acknowledged_at'
         ]
         read_only_fields = fields

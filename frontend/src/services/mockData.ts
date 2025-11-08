@@ -217,14 +217,22 @@ export const mockTransactions: Transaction[] = Array.from({ length: 50 }, (_, i)
                     product.includes('Oil') ? 850 :
                     product.includes('Sugar') ? 65 :
                     product.includes('Flour') ? 550 : 120;
+  const createdAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+  const amount = quantity * unitPrice;
   
   return {
-    id: i + 1,
-    date: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+    transaction_id: `mock-${i + 1}`,
+    product_id: `mock-product-${Math.floor(Math.random() * 5)}`,
     product_name: product,
+    customer_id: i % 4 === 0 ? null : `mock-customer-${i}`,
+    customer_name: i % 4 === 0 ? null : customers[Math.floor(Math.random() * customers.length)],
+    date: createdAt.toISOString().split('T')[0],
+    time: createdAt.toISOString().split('T')[1].slice(0, 8),
     quantity,
-    amount: quantity * unitPrice,
-    customer_name: i % 4 === 0 ? undefined : customers[Math.floor(Math.random() * customers.length)],
-    payment_method: payments[Math.floor(Math.random() * payments.length)],
+    unit_price: unitPrice,
+    amount,
+    payment_method: payments[Math.floor(Math.random() * payments.length)].toLowerCase(),
+    notes: null,
+    created_at: createdAt.toISOString(),
   };
 });

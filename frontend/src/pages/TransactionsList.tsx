@@ -6,6 +6,13 @@ import { ErrorBanner } from '@/components/ErrorBanner';
 import { Transaction } from '@/types/models';
 import { useTransactionsList, TransactionsListParams } from '@/hooks/useDataUpload';
 
+const numberize = (value: number | string | undefined | null): number => {
+  if (value === undefined || value === null) return 0;
+  if (typeof value === 'number') return value;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const TransactionsList: React.FC = () => {
   // Filter states
   const [showFilters, setShowFilters] = useState(false);
@@ -199,8 +206,8 @@ const TransactionsList: React.FC = () => {
           </Card>
         ) : (
           <div className="space-y-2">
-            {transactions.map((transaction) => (
-              <Card key={transaction.id} className="p-4 hover:shadow-md transition-shadow">
+            {transactions.map((transaction: Transaction) => (
+              <Card key={transaction.transaction_id} className="p-4 hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <h3 className="font-semibold mb-1">{transaction.product_name}</h3>
@@ -221,7 +228,7 @@ const TransactionsList: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right ml-4">
-                    <p className="text-lg font-bold text-primary">৳{transaction.amount}</p>
+                    <p className="text-lg font-bold text-primary">৳{numberize(transaction.amount).toLocaleString()}</p>
                     <p className="text-sm text-muted-foreground">{transaction.quantity} units</p>
                   </div>
                 </div>

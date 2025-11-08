@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -1023,11 +1024,14 @@ def record_sale(request):
     Request body:
     {
         "product_id": "uuid",
-        "customer_id": "uuid",
+        "customer_id": "uuid" | null,
+        "customer_name": "optional name",
         "quantity": 5,
         "unit_price": 100.00,
         "payment_method": "cash",
-        "notes": "optional notes"
+        "notes": "optional notes",
+        "date": "YYYY-MM-DD",
+        "time": "HH:MM"
     }
     """
     business = _get_business(request.user)
@@ -1037,70 +1041,74 @@ def record_sale(request):
             status=HTTP_400_BAD_REQUEST
         )
 
+    product_id = request.data.get('product_id')
+    if not product_id:
+        return Response({'error': 'product_id is required'}, status=HTTP_400_BAD_REQUEST)
+
+    customer_id = request.data.get('customer_id')
+    customer_name = request.data.get('customer_name')
+    quantity_raw = request.data.get('quantity', 0)
+    unit_price = request.data.get('unit_price')
+    payment_method = request.data.get('payment_method', 'cash')
+    notes = request.data.get('notes')
+    date_str = request.data.get('date')
+    time_str = request.data.get('time')
+
     try:
-        product_id = request.data.get('product_id')
-        customer_id = request.data.get('customer_id')
-        quantity = int(request.data.get('quantity', 0))
-        unit_price = float(request.data.get('unit_price', 0))
-        payment_method = request.data.get('payment_method', 'cash')
-        notes = request.data.get('notes', '')
+        quantity = int(quantity_raw)
+    except (TypeError, ValueError):
+        return Response({'error': 'Quantity must be an integer greater than 0'}, status=HTTP_400_BAD_REQUEST)
 
-        if not product_id or quantity <= 0 or unit_price <= 0:
-            return Response(
-                {'error': 'Invalid product_id, quantity, or unit_price'},
-                status=HTTP_400_BAD_REQUEST
-            )
+    sale_date = None
+    if date_str:
+        try:
+            sale_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=HTTP_400_BAD_REQUEST)
 
-        # Record the sale
-        service = SaleRecorderService(business, request.user)
+    sale_time = None
+    if time_str:
+        try:
+            time_format = '%H:%M:%S' if len(time_str.split(':')) == 3 else '%H:%M'
+            sale_time = datetime.strptime(time_str, time_format).time()
+        except ValueError:
+            return Response({'error': 'Invalid time format. Use HH:MM or HH:MM:SS.'}, status=HTTP_400_BAD_REQUEST)
+
+    service = SaleRecorderService(business, request.user)
+
+    try:
         result = service.record_sale(
             product_id=product_id,
             customer_id=customer_id,
+            customer_name=customer_name,
             quantity=quantity,
             unit_price=unit_price,
             payment_method=payment_method,
-            notes=notes
+            notes=notes,
+            date=sale_date,
+            time=sale_time
         )
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=HTTP_400_BAD_REQUEST)
+    except Exception as exc:  # pragma: no cover - safeguard
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error recording sale: {exc}")
+        return Response({'error': 'Failed to record sale'}, status=HTTP_400_BAD_REQUEST)
 
-        if result.get('success'):
-            # Also create a Transaction record
-            try:
-                product = Product.objects.get(product_id=product_id, business=business)
-                customer = None
-                if customer_id:
-                    try:
-                        customer = Customer.objects.get(customer_id=customer_id, business=business)
-                    except Customer.DoesNotExist:
-                        pass
+    if not result.get('success'):
+        return Response(result, status=HTTP_400_BAD_REQUEST)
 
-                amount = quantity * unit_price
+    transaction = result.get('transaction')
+    serializer = TransactionSerializer(transaction, context={'request': request})
 
-                Transaction.objects.create(
-                    business=business,
-                    product=product,
-                    customer=customer,
-                    quantity=quantity,
-                    unit_price=unit_price,
-                    amount=amount,
-                    payment_method=payment_method,
-                    date=timezone.now().date(),
-                    notes=notes
-                )
-            except Exception as e:
-                # Log but don't fail the sale
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Failed to create transaction record: {str(e)}")
+    response_payload = {
+        'transaction': serializer.data,
+        'movement_id': result.get('movement_id'),
+        'new_stock': result.get('new_stock'),
+        'amount': str(result.get('amount')) if result.get('amount') is not None else None
+    }
 
-            return Response(result, status=HTTP_201_CREATED)
-        else:
-            return Response(result, status=HTTP_400_BAD_REQUEST)
-
-    except (ValueError, TypeError) as e:
-        return Response(
-            {'error': f'Invalid input: {str(e)}'},
-            status=HTTP_400_BAD_REQUEST
-        )
+    return Response(response_payload, status=HTTP_201_CREATED)
 
 
 @api_view(['POST'])
