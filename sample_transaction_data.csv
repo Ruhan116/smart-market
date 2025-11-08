@@ -1,0 +1,16 @@
+Date,Product,Quantity,Amount,Customer,PaymentMethod
+2024-11-01,Rice,5,250.00,Rshid Ahmed,cash
+2024-11-01,Flour,3,90.00,Shahin Akter,bkash
+2024-11-01,Sugar,2,80.00,,nagad
+2024-11-02,Rice,10,500.00,Rshid Ahmed,cash
+2024-11-02,Oil,4,400.00,Fatima Islam,card
+2024-11-02,Wheat,6,180.00,,credit
+2024-11-03,Sugar,8,320.00,Shahin Akter,bkash
+2024-11-03,Flour,5,150.00,Karim Hassan,rocket
+2024-11-03,Lentils,3,450.00,Amina Khan,cash
+2024-11-04,Rice,7,350.00,Rshid Ahmed,cash
+2024-11-04,Oil,2,200.00,,bkash
+2024-11-04,Wheat,4,120.00,Nasiruddin Ahmed,card
+2024-11-05,Sugar,6,240.00,Fatima Islam,nagad
+2024-11-05,Flour,2,60.00,Shahin Akter,cash
+2024-11-05,Salt,10,100.00,,other

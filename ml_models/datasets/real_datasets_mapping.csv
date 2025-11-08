@@ -1,0 +1,16 @@
+Canonical Dataset,Real Dataset Name,Key Matching Fields,Dataset URL
+users,Login Data for Risk-Based Auth (Kaggle),"user_id, email, created_at, last_login, role",https://www.kaggle.com/datasets/dasgroup/rba-dataset
+businesses,Hotel Booking Demand / Rossmann Stores,"business_id, name, type, country, timezone, created_at",https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand
+transactions,Online Retail (UCI) / Instacart / M5 Walmart,"transaction_id, date, product_id, quantity, unit_price, total_amount, payment_method, customer_id",https://archive.ics.uci.edu/dataset/352/online+retail
+products,Online Retail (UCI) / M5 Walmart / Instacart,"product_id, name, SKU (StockCode), unit_price, category, supplier_id",https://www.kaggle.com/datasets/psparks/instacart-market-basket-analysis
+product_inventory_events,Supply Chain Dataset / Inventory Management,"event_id, product_id, event_type, quantity, timestamp, supplier_id",https://www.kaggle.com/datasets/amirmotefaker/supply-chain-dataset
+customers,Online Retail (UCI) / Hotel Booking,"customer_id, name, email, phone, last_purchase_at, total_spent, purchase_count",https://archive.ics.uci.edu/dataset/352/online+retail
+forecasts,Store Sales Time Series / M5 Walmart,"product_id, forecast_date, predicted_demand (JSON), accuracy_metrics",https://www.kaggle.com/c/store-sales-time-series-forecasting
+recommendations,N/A - Derived from forecasts,Generated from forecast outputs,Derived - no direct dataset
+cashflow_projections,Cash Flow Forecasting (Kaggle),"projection_date, current_balance, projected_balance (JSON)",https://www.kaggle.com/code/gamzeakkurt/cashflow-forecasting-using-prophet-8th-place
+uploaded_files,N/A - System metadata,System-generated metadata,No public dataset
+payment_events,E-Commerce Transactions / Credit Card Fraud,"transaction_id, payment_method, amount, status, payment_date",https://www.kaggle.com/datasets/smayanj/e-commerce-transactions-dataset
+suppliers,Supply Chain Dataset (Kaggle),"supplier_id, name, lead_time_days, product_mappings",https://www.kaggle.com/datasets/amirmotefaker/supply-chain-dataset
+holidays_calendar,M5 Walmart (calendar.csv) / Rossmann,"date, event_name, event_type, region, is_holiday",https://www.kaggle.com/competitions/m5-forecasting-accuracy
+price_changes & promotions,Rossmann Store Sales / M5 Walmart,"product_id, start_date, end_date, promo_type, price_override",https://www.kaggle.com/competitions/rossmann-store-sales
+refunds_returns,E-Commerce Returns (Kaggle),"transaction_id, product_id, quantity, amount, reason, created_at",https://www.kaggle.com/datasets/sayalikhot21/synthetic-dataset-for-e-commerce-return-analysis
