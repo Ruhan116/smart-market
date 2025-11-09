@@ -7,3 +7,6 @@ psycopg2-binary
 django-cors-headers
 pandas
 prophet
+gunicorn
+whitenoise
+python-decouple
