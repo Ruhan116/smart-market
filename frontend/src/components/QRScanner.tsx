@@ -23,6 +23,7 @@ type QRScannerProps = {
 const QRScanner: React.FC<QRScannerProps> = ({ onDecode, onClose }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastDecoded, setLastDecoded] = useState<string | null>(null);
@@ -204,14 +205,19 @@ const QRScanner: React.FC<QRScannerProps> = ({ onDecode, onClose }) => {
       if (typeof reader.result === 'string') img.src = reader.result;
     };
     reader.readAsDataURL(file);
+
+    // allow uploading the same file again if needed
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   return (
     <DialogContent>
       <DialogHeader>
         <DialogTitle>Scan QR</DialogTitle>
-        <DialogDescription>
-          <p className="text-sm text-muted-foreground">Point your camera at a QR code or upload an image containing a QR.</p>
+        <DialogDescription className="text-sm text-muted-foreground">
+          Point your camera at a QR code or upload an image containing a QR.
         </DialogDescription>
       </DialogHeader>
 
@@ -223,10 +229,20 @@ const QRScanner: React.FC<QRScannerProps> = ({ onDecode, onClose }) => {
         </div>
 
         <div className="mt-3 flex items-center gap-2">
-          <label className="cursor-pointer">
-            <input type="file" accept="image/*" onChange={onFileChange} className="hidden" />
-            <Button variant="outline">Upload Image</Button>
-          </label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={onFileChange}
+            className="hidden"
+          />
+          <Button
+            variant="outline"
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Upload Image
+          </Button>
           <Button variant="ghost" onClick={() => { stopCamera(); onClose?.(); }}>Close</Button>
         </div>
 

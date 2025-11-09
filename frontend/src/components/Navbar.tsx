@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import logo from '@/assets/logo.png';
 
 export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -45,8 +46,9 @@ export const Navbar: React.FC = () => {
         onClick={() => navigate('/home')}
         className="text-xl font-bold text-primary flex items-center gap-2"
         aria-label="SmartMarket Home"
+        type="button"
       >
-        <span>📊</span>
+        <img src={logo} alt="SmartMarket logo" className="h-8 w-8" />
         <span>SmartMarket</span>
       </button>
 

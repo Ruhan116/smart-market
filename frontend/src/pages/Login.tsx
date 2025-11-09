@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import logo from '@/assets/logo.png';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -39,19 +40,15 @@ const Login: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/5 px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary mb-2">📊 SmartMarket</h1>
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <img src={logo} alt="SmartMarket logo" className="h-10 w-10" />
+            <h1 className="text-4xl font-bold text-primary">SmartMarket</h1>
+          </div>
           <p className="text-muted-foreground">AI Business Intelligence for SMEs</p>
         </div>
 
         <div className="bg-card border border-border rounded-lg shadow-lg p-6">
           <h2 className="text-2xl font-bold mb-6">Login</h2>
-          
-          <div className="bg-primary/10 border border-primary/20 rounded-lg p-3 mb-4">
-            <p className="text-sm text-primary font-medium">
-              🎉 Demo Mode: Use any email and password to explore the app!
-            </p>
-          </div>
-          
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <Label htmlFor="email">Email Address</Label>

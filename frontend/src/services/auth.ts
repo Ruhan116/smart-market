@@ -101,6 +101,8 @@ export const authService = {
   logout: () => {
     localStorage.removeItem('demo_user');
     localStorage.removeItem('demo_authenticated');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
   },
 
   getProfile: async () => {
