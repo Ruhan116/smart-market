@@ -19,6 +19,8 @@ from rest_framework.status import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.pagination import PageNumberPagination
+from apps.churn.models import CustomerChurnScore
+from apps.churn.tasks import recalculate_rfm_scores
 from .models import (
     FileUploadRecord, Transaction, ReceiptUploadRecord, Product, Customer, FailedJob,
     InventoryUploadRecord, StockMovement, StockAlert
@@ -1250,6 +1252,101 @@ def get_product_forecast(request, product_id):
             'reorder_point': product.reorder_point,
         },
     }, status=HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_customers(request):
+    """Return customers enriched with RFM + churn insights."""
+
+    business = _get_business(request.user)
+    if not business:
+        return Response({'error': 'No business found'}, status=HTTP_400_BAD_REQUEST)
+
+    refresh_requested = request.query_params.get('refresh') == 'true'
+
+    if refresh_requested or not CustomerChurnScore.objects.filter(business=business).exists():
+        recalculate_rfm_scores(str(business.id))
+
+    all_scores = list(
+        CustomerChurnScore.objects.select_related('customer').filter(business=business)
+    )
+
+    segment_filter = request.query_params.get('segment')
+    risk_filter = request.query_params.get('risk_level')
+
+    filtered_scores = all_scores
+    if segment_filter:
+        filtered_scores = [score for score in filtered_scores if score.rfm_segment == segment_filter]
+    if risk_filter:
+        filtered_scores = [score for score in filtered_scores if score.churn_risk_level == risk_filter]
+
+    filtered_scores = sorted(filtered_scores, key=lambda score: score.customer.name.lower())
+
+    def _as_number(value):
+        if value is None:
+            return 0
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0
+
+    customers_payload = []
+    for score in filtered_scores:
+        customer = score.customer
+        customers_payload.append({
+            'id': str(customer.customer_id),
+            'name': customer.name,
+            'phone': customer.phone,
+            'email': customer.email,
+            'purchase_metrics': {
+                'total_spent': _as_number(score.total_spent),
+                'purchase_count': score.purchase_count,
+                'last_purchase': score.last_purchase.isoformat() if score.last_purchase else None,
+                'days_since': score.days_since_purchase,
+                'avg_value': _as_number(score.avg_purchase_value),
+            },
+            'churn_analysis': {
+                'rfm_segment': score.rfm_segment,
+                'churn_risk_score': _as_number(score.churn_risk_score),
+                'churn_risk_level': score.churn_risk_level,
+                'risk_reason': score.risk_reason,
+            },
+            'updated_at': score.updated_at.isoformat(),
+        })
+
+    summary = {
+        'total_customers': len(all_scores),
+        'risk_counts': {
+            'high': sum(1 for score in all_scores if score.churn_risk_level == 'high'),
+            'medium': sum(1 for score in all_scores if score.churn_risk_level == 'medium'),
+            'low': sum(1 for score in all_scores if score.churn_risk_level == 'low'),
+        },
+        'segment_counts': {
+            segment: sum(1 for score in all_scores if score.rfm_segment == segment)
+            for segment in ['champion', 'loyal', 'potential', 'at_risk', 'dormant']
+        },
+        'last_refreshed_at': max((score.updated_at for score in all_scores), default=None)
+    }
+
+    if summary['last_refreshed_at'] is not None:
+        summary['last_refreshed_at'] = summary['last_refreshed_at'].isoformat()
+
+    return Response(
+        {
+            'customers': customers_payload,
+            'summary': summary,
+            'meta': {
+                'generated_at': timezone.now().isoformat(),
+                'requested_filters': {
+                    'segment': segment_filter,
+                    'risk_level': risk_filter,
+                    'refresh': refresh_requested,
+                }
+            }
+        },
+        status=HTTP_200_OK,
+    )
 
 
 class StockMovementViewSet(ModelViewSet):

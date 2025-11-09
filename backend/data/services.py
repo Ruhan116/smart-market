@@ -351,7 +351,7 @@ class CSVParserService:
             from apps.events.adapter import publish_event
 
             payload = {
-                'business_id': str(self.business.business_id),
+                'business_id': str(self.business.id),
                 'affected_products': list(self.affected_products),
                 'affected_customers': list(self.affected_customers),
                 'transaction_count': self.created_transactions
