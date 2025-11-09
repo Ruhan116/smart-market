@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: smart-market-backend
+    env: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn project.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: False
+      - key: DJANGO_SETTINGS_MODULE
+        value: project.settings
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: smart-market-db
+          property: connectionString
+    
+  - type: pserv
+    name: smart-market-db
+    env: postgres
+    plan: starter
+    databaseName: smart_market_db
+    databaseUser: smart_market_user
