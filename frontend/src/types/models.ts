@@ -63,13 +63,14 @@ export interface Product {
 
 // Customer with Churn Analysis
 export interface Customer {
-  id: number;
+  id: string;
   name: string;
   phone?: string;
+  email?: string | null;
   purchase_metrics: {
     total_spent: number;
     purchase_count: number;
-    last_purchase: string;
+    last_purchase: string | null;
     days_since: number;
     avg_value: number;
   };

@@ -1,30 +1,32 @@
 import logging
-from typing import List
+from typing import Iterable
+
+from django.db import transaction
+
+from accounts.models import Business
+
+from .services import RFMCalculator
 
 logger = logging.getLogger(__name__)
 
 
-def recalculate_rfm_scores(business_id: str, affected_customers: List[str]):
-    """
-    Recalculates RFM (Recency, Frequency, Monetary) scores and churn risk for customers.
+def recalculate_rfm_scores(business_id: str, affected_customers: Iterable[str] | None = None) -> None:
+    """Recalculate and persist churn scores for a business."""
 
-    STUB FUNCTION: Phase 2 will implement actual RFM calculation logic
-    using Recency, Frequency, and Monetary value metrics.
+    del affected_customers  # scoring is relative across the full cohort
 
-    Args:
-        business_id (str): UUID of the business
-        affected_customers (list): List of customer IDs to recalculate scores for
+    try:
+        business = Business.objects.get(id=business_id)
+    except Business.DoesNotExist:
+        logger.warning("Churn recalculation skipped; business %s not found", business_id)
+        return
 
-    Returns:
-        dict: RFM scores and churn risk results (Phase 2)
-    """
+    calculator = RFMCalculator(business)
+    with transaction.atomic():
+        churn_scores = calculator.recalculate()
+
     logger.info(
-        f"[STUB] Recalculating RFM scores for business {business_id}, "
-        f"customers: {affected_customers}"
+        "Churn recalculation complete for business %s (%s customers)",
+        business_id,
+        len(churn_scores),
     )
-    # Phase 2: Actual churn calculation logic
-    # - Fetch customer transaction history
-    # - Calculate RFM scores
-    # - Determine churn risk level
-    # - Store results in database
-    pass

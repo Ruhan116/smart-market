@@ -149,7 +149,7 @@ export const mockProducts: Product[] = [
 // Mock customers
 export const mockCustomers: Customer[] = [
   {
-    id: 1,
+    id: '1',
     name: 'Fatima Rahman',
     phone: '+880 1712-345678',
     purchase_metrics: {
@@ -167,7 +167,7 @@ export const mockCustomers: Customer[] = [
     },
   },
   {
-    id: 2,
+    id: '2',
     name: 'Karim Ahmed',
     phone: '+880 1813-456789',
     purchase_metrics: {
@@ -185,7 +185,7 @@ export const mockCustomers: Customer[] = [
     },
   },
   {
-    id: 3,
+    id: '3',
     name: 'Nadia Hossain',
     phone: '+880 1915-567890',
     purchase_metrics: {
