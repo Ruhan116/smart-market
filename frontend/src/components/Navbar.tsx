@@ -2,20 +2,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import logo from '@/assets/logo.png';
+import { useLanguage } from '@/context/LanguageContext';
 
 export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [language, setLanguage] = useState(localStorage.getItem('language') || 'en');
+  const { language, toggleLanguage } = useLanguage();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const handleLanguageToggle = () => {
-    const newLang = language === 'bn' ? 'en' : 'bn';
-    setLanguage(newLang);
-    localStorage.setItem('language', newLang);
-    document.documentElement.lang = newLang;
-    window.location.reload();
+    toggleLanguage();
   };
 
   const handleLogout = () => {
