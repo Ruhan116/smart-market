@@ -99,6 +99,16 @@ else:
         'http://localhost:3000',
         'http://127.0.0.1:3000',
         'https://smart-market-6gd5jbmoc-ruhan116s-projects.vercel.app',
+        'https://smart-market-production.up.railway.app',
+    ]
+
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r'^https://.*\.vercel\.app$',
+    ]
+
+    CSRF_TRUSTED_ORIGINS = [
+        'https://smart-market-6gd5jbmoc-ruhan116s-projects.vercel.app',
+        'https://smart-market-production.up.railway.app',
     ]
 
 REST_FRAMEWORK = {
