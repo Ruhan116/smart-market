@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -18,6 +19,8 @@ from rest_framework.status import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.pagination import PageNumberPagination
+from apps.churn.models import CustomerChurnScore
+from apps.churn.tasks import recalculate_rfm_scores
 from .models import (
     FileUploadRecord, Transaction, ReceiptUploadRecord, Product, Customer, FailedJob,
     InventoryUploadRecord, StockMovement, StockAlert
@@ -28,6 +31,7 @@ from .serializers import (
     StockAlertSerializer, InventoryReportSerializer
 )
 from .services import CSVParserService
+from .forecast_service import DemandForecastService
 from .receipt_ocr import ReceiptOCRService
 from .inventory_service import InventoryUploadService, SaleRecorderService, InventoryReportService
 
@@ -1181,6 +1185,168 @@ def adjust_inventory(request):
         'new_stock': product.current_stock,
         'movement_type': movement_type
     }, status=HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_product_forecast(request, product_id):
+    """Generate a demand forecast for the given product."""
+    business = _get_business(request.user)
+    if not business:
+        return Response({'error': 'No business found'}, status=HTTP_400_BAD_REQUEST)
+
+    try:
+        product = Product.objects.get(product_id=product_id, business=business)
+    except Product.DoesNotExist:
+        return Response({'error': 'Product not found'}, status=HTTP_404_NOT_FOUND)
+
+    periods_param = request.query_params.get('periods')
+    if periods_param is None:
+        periods = 30
+    else:
+        try:
+            periods = int(periods_param)
+        except (TypeError, ValueError):
+            return Response({'error': 'Invalid periods value'}, status=HTTP_400_BAD_REQUEST)
+
+    if periods <= 0 or periods > 180:
+        return Response({'error': 'periods must be between 1 and 180 days'}, status=HTTP_400_BAD_REQUEST)
+
+    service = DemandForecastService(business)
+
+    try:
+        result = service.forecast_product(product.product_id, periods=periods)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=HTTP_400_BAD_REQUEST)
+
+    predicted_total = 0.0
+    for point in result.forecast:
+        try:
+            predicted_total += float(point.get('predicted', 0) or 0)
+        except (TypeError, ValueError):
+            continue
+
+    avg_daily_predicted = predicted_total / periods if periods > 0 else 0.0
+    current_stock = product.current_stock
+    net_position = current_stock - predicted_total
+    recommended_reorder = max(0, math.ceil(predicted_total - current_stock))
+    coverage_days = None
+    if avg_daily_predicted > 0:
+        coverage_days = current_stock / avg_daily_predicted
+
+    return Response({
+        'product_id': str(product.product_id),
+        'product_name': product.name,
+        'historical': result.historical,
+        'forecast': result.forecast,
+        'metrics': result.metrics,
+        'generated_at': result.generated_at,
+        'periods': periods,
+        'reorder': {
+            'recommended_quantity': recommended_reorder,
+            'predicted_demand': predicted_total,
+            'current_stock': current_stock,
+            'net_position': net_position,
+            'coverage_days': coverage_days,
+            'avg_daily_predicted': avg_daily_predicted,
+            'reorder_point': product.reorder_point,
+        },
+    }, status=HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_customers(request):
+    """Return customers enriched with RFM + churn insights."""
+
+    business = _get_business(request.user)
+    if not business:
+        return Response({'error': 'No business found'}, status=HTTP_400_BAD_REQUEST)
+
+    refresh_requested = request.query_params.get('refresh') == 'true'
+
+    if refresh_requested or not CustomerChurnScore.objects.filter(business=business).exists():
+        recalculate_rfm_scores(str(business.id))
+
+    all_scores = list(
+        CustomerChurnScore.objects.select_related('customer').filter(business=business)
+    )
+
+    segment_filter = request.query_params.get('segment')
+    risk_filter = request.query_params.get('risk_level')
+
+    filtered_scores = all_scores
+    if segment_filter:
+        filtered_scores = [score for score in filtered_scores if score.rfm_segment == segment_filter]
+    if risk_filter:
+        filtered_scores = [score for score in filtered_scores if score.churn_risk_level == risk_filter]
+
+    filtered_scores = sorted(filtered_scores, key=lambda score: score.customer.name.lower())
+
+    def _as_number(value):
+        if value is None:
+            return 0
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0
+
+    customers_payload = []
+    for score in filtered_scores:
+        customer = score.customer
+        customers_payload.append({
+            'id': str(customer.customer_id),
+            'name': customer.name,
+            'phone': customer.phone,
+            'email': customer.email,
+            'purchase_metrics': {
+                'total_spent': _as_number(score.total_spent),
+                'purchase_count': score.purchase_count,
+                'last_purchase': score.last_purchase.isoformat() if score.last_purchase else None,
+                'days_since': score.days_since_purchase,
+                'avg_value': _as_number(score.avg_purchase_value),
+            },
+            'churn_analysis': {
+                'rfm_segment': score.rfm_segment,
+                'churn_risk_score': _as_number(score.churn_risk_score),
+                'churn_risk_level': score.churn_risk_level,
+                'risk_reason': score.risk_reason,
+            },
+            'updated_at': score.updated_at.isoformat(),
+        })
+
+    summary = {
+        'total_customers': len(all_scores),
+        'risk_counts': {
+            'high': sum(1 for score in all_scores if score.churn_risk_level == 'high'),
+            'medium': sum(1 for score in all_scores if score.churn_risk_level == 'medium'),
+            'low': sum(1 for score in all_scores if score.churn_risk_level == 'low'),
+        },
+        'segment_counts': {
+            segment: sum(1 for score in all_scores if score.rfm_segment == segment)
+            for segment in ['champion', 'loyal', 'potential', 'at_risk', 'dormant']
+        },
+        'last_refreshed_at': max((score.updated_at for score in all_scores), default=None)
+    }
+
+    if summary['last_refreshed_at'] is not None:
+        summary['last_refreshed_at'] = summary['last_refreshed_at'].isoformat()
+
+    return Response(
+        {
+            'customers': customers_payload,
+            'summary': summary,
+            'meta': {
+                'generated_at': timezone.now().isoformat(),
+                'requested_filters': {
+                    'segment': segment_filter,
+                    'risk_level': risk_filter,
+                    'refresh': refresh_requested,
+                }
+            }
+        },
+        status=HTTP_200_OK,
+    )
 
 
 class StockMovementViewSet(ModelViewSet):

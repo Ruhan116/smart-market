@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'accounts',
     'data',
+    'apps.churn',
 ]
 
 MIDDLEWARE = [

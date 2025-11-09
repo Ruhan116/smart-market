@@ -6,21 +6,13 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ErrorBanner } from '@/components/ErrorBanner';
 import api from '@/services/api';
 import { toast } from 'sonner';
+import { Transaction } from '@/types/models';
 
 type BadgeStatus = {
   icon: string;
   text: string;
   color: string;
 };
-
-interface StockMovement {
-  movement_id: string;
-  movement_type: string;
-  product_id: string;
-  product_name: string;
-  quantity_changed: number;
-  created_at: string;
-}
 
 interface InventoryAlert {
   alert_id: string;
@@ -53,14 +45,27 @@ const Forecasts: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const numberize = (value: number | string | undefined | null): number => {
+    if (value === undefined || value === null) return 0;
+    if (typeof value === 'number') return value;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
   const fetchForecasts = async () => {
     try {
       setError(null);
       setLoading(true);
 
-      const [productsRes, movementsRes, alertsRes] = await Promise.all([
+      const [productsRes, transactionsRes, alertsRes] = await Promise.all([
         api.get('/data/inventory/products/'),
-        api.get('/data/inventory/movements/'),
+        api.get('/data/transactions/', {
+          params: {
+            limit: 500,
+            sort_by: 'date',
+            sort_order: 'desc',
+          },
+        }),
         api.get('/data/inventory/alerts/'),
       ]);
 
@@ -70,9 +75,9 @@ const Forecasts: React.FC = () => {
         return [];
       };
 
-      const products = normalize<InventoryProduct>(productsRes.data);
-      const movements = normalize<StockMovement>(movementsRes.data);
-      const alerts = normalize<InventoryAlert>(alertsRes.data);
+  const products = normalize<InventoryProduct>(productsRes.data);
+  const transactions = normalize<Transaction>(transactionsRes.data);
+  const alerts = normalize<InventoryAlert>(alertsRes.data);
 
       const productLookup = new Map<string, InventoryProduct>(
         products.map((product) => [product.product_id, product])
@@ -86,15 +91,20 @@ const Forecasts: React.FC = () => {
 
       const productDailySales = new Map<string, Map<string, number>>();
 
-      movements.forEach((movement) => {
-        if (movement.quantity_changed >= 0) {
+      transactions.forEach((transaction) => {
+        const productId = transaction.product_id;
+        if (!productId) {
           return;
         }
 
-        const productId = movement.product_id;
-        const productName = movement.product_name;
-        const dayKey = new Date(movement.created_at).toISOString().slice(0, 10);
-        const quantity = Math.abs(movement.quantity_changed);
+        const quantity = numberize(transaction.quantity);
+        if (quantity <= 0) {
+          return;
+        }
+
+        const dayKey = transaction.date
+          ? new Date(transaction.date).toISOString().slice(0, 10)
+          : new Date(transaction.created_at).toISOString().slice(0, 10);
 
         if (!productDailySales.has(productId)) {
           productDailySales.set(productId, new Map());

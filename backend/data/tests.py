@@ -1130,7 +1130,7 @@ class StoryThreePointFiveTestCase(APITestCase):
 
             # Publish an event
             payload = {
-                'business_id': str(self.business.business_id),
+                'business_id': str(self.business.id),
                 'affected_products': ['prod-1', 'prod-2'],
                 'affected_customers': ['cust-1'],
                 'transaction_count': 2

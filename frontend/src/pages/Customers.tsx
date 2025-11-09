@@ -6,27 +6,56 @@ import { ErrorBanner } from '@/components/ErrorBanner';
 import api from '@/services/api';
 import { Customer } from '@/types/models';
 
+type CustomersSummary = {
+  total_customers: number;
+  risk_counts: Record<'high' | 'medium' | 'low', number>;
+  segment_counts: Record<'champion' | 'loyal' | 'potential' | 'at_risk' | 'dormant', number>;
+  last_refreshed_at: string | null;
+};
+
 const Customers: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [summary, setSummary] = useState<CustomersSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFallback, setIsFallback] = useState(false);
   const [filter, setFilter] = useState<'all' | 'at_risk' | 'champion'>('all');
 
-  const fetchCustomers = async () => {
+  const fetchCustomers = async (options?: { refresh?: boolean }) => {
     try {
+      setLoading(true);
       setError(null);
-      const { mockCustomers } = await import('@/services/mockData');
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setCustomers(mockCustomers);
+
+      const { data } = await api.get('data/customers/', {
+        params: options?.refresh ? { refresh: 'true' } : undefined,
+      });
+
+      setCustomers(data.customers);
+      setSummary(data.summary ?? null);
+      setIsFallback(false);
     } catch (err: any) {
-      setError('Failed to load customers');
+      console.error('[customers] failed to load live data', err);
+      try {
+        const { mockCustomers } = await import('@/services/mockData');
+        setCustomers(mockCustomers);
+        setSummary(null);
+        setIsFallback(true);
+        setError('Live customer analytics unavailable. Showing sample data.');
+      } catch (fallbackError) {
+        console.error('[customers] failed to load mock data', fallbackError);
+        setCustomers([]);
+        setSummary(null);
+        setIsFallback(true);
+        setError('Failed to load customers');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchCustomers();
+    void fetchCustomers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredCustomers = customers.filter(customer => {
@@ -64,7 +93,33 @@ const Customers: React.FC = () => {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold mb-4">Customer Analysis</h1>
 
-        {error && <ErrorBanner message={error} onRetry={fetchCustomers} />}
+        {error && (
+          <ErrorBanner
+            message={error}
+            onRetry={() => void fetchCustomers({ refresh: !isFallback })}
+          />
+        )}
+
+        {summary && !isFallback && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Total Customers</p>
+              <p className="text-2xl font-semibold">{summary.total_customers}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">High Risk</p>
+              <p className="text-2xl font-semibold text-destructive">
+                {summary.risk_counts.high}
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Champions</p>
+              <p className="text-2xl font-semibold text-success">
+                {summary.segment_counts.champion}
+              </p>
+            </Card>
+          </div>
+        )}
 
         {/* Filter Buttons */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
