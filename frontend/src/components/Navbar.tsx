@@ -3,11 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import logo from '@/assets/logo.png';
 import { useLanguage } from '@/context/LanguageContext';
+import { useTheme } from '@/context/ThemeContext';
+import { Moon, Sun } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { language, toggleLanguage } = useLanguage();
+  const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -121,6 +124,18 @@ export const Navbar: React.FC = () => {
           aria-label={`Switch to ${language === 'bn' ? 'English' : 'Bangla'}`}
         >
           {language === 'bn' ? 'EN' : 'বাংলা'}
+        </button>
+
+        <button
+          onClick={toggleTheme}
+          className="text-sm px-3 py-2 rounded-lg hover:bg-muted transition-colors flex items-center justify-center"
+          aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+        >
+          {theme === 'light' ? (
+            <Moon className="h-5 w-5" />
+          ) : (
+            <Sun className="h-5 w-5" />
+          )}
         </button>
 
         {user && (

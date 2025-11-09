@@ -10,6 +10,7 @@ import { BottomTabs } from "@/components/BottomTabs";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import SplashScreen from "@/components/SplashScreen";
 import { LanguageProvider } from "@/context/LanguageContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Home from "./pages/Home";
@@ -94,9 +95,11 @@ const App = () => {
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
-            <LanguageProvider>
-              {showSplash ? <SplashScreen /> : <AppContent />}
-            </LanguageProvider>
+            <ThemeProvider>
+              <LanguageProvider>
+                {showSplash ? <SplashScreen /> : <AppContent />}
+              </LanguageProvider>
+            </ThemeProvider>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>
