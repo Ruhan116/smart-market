@@ -1,3 +1,8 @@
 #!/bin/bash
+
+set -e
+
 python manage.py migrate
-gunicorn project.wsgi --log-file -
+
+PORT=${PORT:-8000}
+gunicorn project.wsgi --bind 0.0.0.0:$PORT --timeout 120 --log-file -
