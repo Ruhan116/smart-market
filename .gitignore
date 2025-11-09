@@ -57,3 +57,6 @@ yarn-error.log
 *.swo
 *~
 .DS_Store
+
+#python environments
+.venv/

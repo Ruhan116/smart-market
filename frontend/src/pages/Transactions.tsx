@@ -15,6 +15,8 @@ import {
 import api from '@/services/api';
 import { Transaction } from '@/types/models';
 import { toast } from 'sonner';
+import { Dialog } from '@/components/ui/dialog';
+import QRScanner from '@/components/QRScanner';
 
 type InventoryProduct = {
   product_id: string;
@@ -69,6 +71,7 @@ const Transactions: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
 
   const selectedProduct = useMemo(
@@ -125,8 +128,10 @@ const Transactions: React.FC = () => {
           unit_price: numberize(item.unit_price),
         }))
       );
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to load transactions');
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const e = err as any;
+      setError(e.response?.data?.error || 'Failed to load transactions');
     } finally {
       setLoading(false);
     }
@@ -153,6 +158,61 @@ const Transactions: React.FC = () => {
       notes: '',
     });
     setProductSearch('');
+  };
+
+  const handleQrDecode = (payload: unknown) => {
+    // For transactions we expect a small JSON with SKU and unitPrice. Quantity and notes remain manual.
+    let data: unknown = payload;
+    if (typeof payload === 'string') {
+      try {
+        data = JSON.parse(payload);
+      } catch (e) {
+        // raw string -> convert to object with raw field so we can still show it
+        data = { raw: payload };
+      }
+    }
+
+    const asRecord = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : { raw: String(v) });
+    const d = asRecord(data);
+
+    const skuVal = (d.sku ?? d.SKU ?? d.sku_code ?? '') as string;
+    const unitPriceValRaw = d.unitPrice ?? d.unit_price ?? d.price ?? d.unitprice ?? '';
+
+    // find product by SKU (case-insensitive) if possible
+    let matchedProduct = null as InventoryProduct | null;
+    if (skuVal && products.length > 0) {
+      const skuLower = skuVal.toLowerCase();
+      matchedProduct = products.find((p) => (p.sku ?? '').toLowerCase() === skuLower) ?? null;
+    }
+
+    // determine unit price: prefer QR value, else fall back to product default
+    let unitPriceFinal: string = '';
+    if (unitPriceValRaw !== undefined && unitPriceValRaw !== '') {
+      unitPriceFinal = String(unitPriceValRaw);
+    } else if (matchedProduct) {
+      unitPriceFinal = numberize(matchedProduct.unit_price).toString();
+    }
+
+  // debug info to help diagnose issues where the UI doesn't reflect changes (these logs appear in browser console)
+  console.log('QR decoded', { skuVal, unitPriceValRaw, matchedProduct, unitPriceFinal });
+
+    setFormState((prev) => {
+      const newState = {
+        ...prev,
+        productId: matchedProduct ? matchedProduct.product_id : prev.productId,
+        // leave quantity and notes untouched (manual)
+        unitPrice: unitPriceFinal !== '' ? unitPriceFinal : (matchedProduct ? numberize(matchedProduct.unit_price).toString() : prev.unitPrice),
+      };
+  console.log('Setting form state from QR', newState);
+      return newState;
+    });
+
+    setScanOpen(false);
+    if (!matchedProduct) {
+      toast('SKU from QR not found in products. Unit price set but product not selected.');
+    } else {
+      toast.success('SKU and unit price loaded from QR');
+    }
   };
 
   const handleSelectProduct = (productId: string) => {
@@ -192,7 +252,7 @@ const Transactions: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const payload: Record<string, any> = {
+      const payloadObj: Record<string, unknown> = {
         product_id: formState.productId,
         quantity,
         unit_price: unitPriceValue,
@@ -200,13 +260,14 @@ const Transactions: React.FC = () => {
       };
 
       if (formState.customerName.trim()) {
-        payload.customer_name = formState.customerName.trim();
+        payloadObj.customer_name = formState.customerName.trim();
       }
       if (formState.notes.trim()) {
-        payload.notes = formState.notes.trim();
+        payloadObj.notes = formState.notes.trim();
       }
 
-      const response = await api.post<TransactionResponse>('/data/inventory/transactions/', payload);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await api.post<TransactionResponse>('/data/inventory/transactions/', payloadObj as any);
       const created = mapTransaction(response.data.transaction);
 
       setTransactions((prev) => [created, ...prev]);
@@ -224,8 +285,10 @@ const Transactions: React.FC = () => {
 
       toast.success('Transaction recorded');
       resetForm();
-    } catch (err: any) {
-      const message = err.response?.data?.error || 'Failed to record transaction';
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const e = err as any;
+      const message = e.response?.data?.error || 'Failed to record transaction';
       toast.error(message);
     } finally {
       setSubmitting(false);
@@ -365,9 +428,22 @@ const Transactions: React.FC = () => {
               <Button type="button" variant="outline" onClick={resetForm} disabled={submitting}>
                 Reset
               </Button>
+              <Button type="button" variant="ghost" onClick={() => setScanOpen(true)} disabled={submitting}>
+                Scan QR
+              </Button>
             </div>
           </form>
         </Card>
+
+        <Dialog open={scanOpen} onOpenChange={setScanOpen}>
+          {scanOpen && (
+            // QRScanner renders DialogContent internally; pass callbacks
+            <QRScanner
+              onDecode={handleQrDecode}
+              onClose={() => setScanOpen(false)}
+            />
+          )}
+        </Dialog>
 
         {/* Summary Card */}
         <Card className="p-4 mb-6">
