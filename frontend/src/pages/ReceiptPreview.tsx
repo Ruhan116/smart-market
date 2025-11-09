@@ -29,15 +29,18 @@ const ReceiptPreview: React.FC = () => {
     }
   }, [receipt]);
 
-  const handleItemChange = (index: number, field: string, value: any) => {
+  type EditableField = 'name' | 'quantity' | 'unit_price';
+
+  const handleItemChange = (index: number, field: EditableField, value: string) => {
     const updated = [...editingItems];
     const item = { ...updated[index] };
 
     if (field === 'quantity' || field === 'unit_price') {
-      item[field as keyof ExtractedItem] = parseFloat(value);
+      const numericValue = parseFloat(value);
+      item[field] = Number.isFinite(numericValue) && numericValue >= 0 ? numericValue : 0;
       item.total_price = item.quantity * item.unit_price;
     } else {
-      item[field as keyof ExtractedItem] = value;
+      item.name = value;
     }
 
     updated[index] = item;
@@ -87,7 +90,7 @@ const ReceiptPreview: React.FC = () => {
   };
 
   if (isLoading) {
-    return <LoadingSpinner fullScreen />;
+    return <LoadingSpinner fullScreen message="Loading receipt preview..." />;
   }
 
   if (isError || !receipt) {

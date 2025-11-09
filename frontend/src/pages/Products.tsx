@@ -43,7 +43,7 @@ const Products: React.FC = () => {
   };
 
   if (loading) {
-    return <LoadingSpinner fullScreen />;
+    return <LoadingSpinner fullScreen message="Loading product inventory..." />;
   }
 
   return (
