@@ -353,7 +353,7 @@ const ForecastDetails: React.FC = () => {
   };
 
   if (loading) {
-    return <LoadingSpinner fullScreen />;
+    return <LoadingSpinner fullScreen message="Loading forecast details..." />;
   }
 
   if (error || !forecast) {

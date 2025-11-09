@@ -224,7 +224,7 @@ const Forecasts: React.FC = () => {
   }, []);
 
   if (loading) {
-    return <LoadingSpinner fullScreen />;
+    return <LoadingSpinner fullScreen message="Loading forecasts..." />;
   }
 
   const goToForecastDetails = (productId?: string) => {

@@ -64,7 +64,7 @@ const Home: React.FC = () => {
   };
 
   if (loading) {
-    return <LoadingSpinner fullScreen />;
+    return <LoadingSpinner fullScreen message="Loading your dashboard..." />;
   }
 
   return (

@@ -142,7 +142,7 @@ const Transactions: React.FC = () => {
   }, []);
 
   if (loading) {
-    return <LoadingSpinner fullScreen />;
+    return <LoadingSpinner fullScreen message="Loading sales data..." />;
   }
 
   const totalRevenue = transactions.reduce((sum, transaction) => sum + numberize(transaction.amount), 0);

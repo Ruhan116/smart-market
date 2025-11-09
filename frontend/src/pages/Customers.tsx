@@ -85,7 +85,7 @@ const Customers: React.FC = () => {
   };
 
   if (loading) {
-    return <LoadingSpinner fullScreen />;
+    return <LoadingSpinner fullScreen message="Loading customers..." />;
   }
 
   return (

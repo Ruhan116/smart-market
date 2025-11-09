@@ -85,7 +85,7 @@ const AdminDashboard: React.FC = () => {
   const error = failedJobsError || uploadStatusError;
 
   if (loading && failedJobs.length === 0 && uploadStatuses.length === 0) {
-    return <LoadingSpinner fullScreen />;
+    return <LoadingSpinner fullScreen message="Loading admin metrics..." />;
   }
 
   return (

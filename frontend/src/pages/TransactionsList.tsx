@@ -64,7 +64,7 @@ const TransactionsList: React.FC = () => {
   };
 
   if (isLoading && transactions.length === 0) {
-    return <LoadingSpinner fullScreen />;
+    return <LoadingSpinner fullScreen message="Loading transactions..." />;
   }
 
   return (
